@@ -29,6 +29,22 @@ class Person(BaseModel):
     relation: str | None = None
 
 
+class Relationship(BaseModel):
+    """Directed edge: `a` is the `kind` of `b` (a parent of b, a spouse of b, a sibling of b)."""
+
+    a: UUID
+    b: UUID
+    kind: str
+
+
+class FamilyTree(BaseModel):
+    people: list[Person]
+    relationships: list[Relationship]
+    me: UUID | None = None
+    # People with a Tell Me More account, as opposed to relatives only added by name.
+    member_person_ids: list[UUID]
+
+
 class CreateFamily(BaseModel):
     name: str
     your_name: str
@@ -37,6 +53,14 @@ class CreateFamily(BaseModel):
 class JoinFamily(BaseModel):
     invite_code: str
     your_name: str
+
+
+class CreatePerson(BaseModel):
+    family_id: UUID
+    display_name: str
+    relation_label: str | None = None
+    birth_year: int | None = None
+    is_living: bool = True
 
 
 @router.get("/families")
@@ -99,7 +123,8 @@ async def join_family(body: JoinFamily, user: CurrentUser) -> Family:
     return Family(**family)
 
 
-# Only people with an account: a name typed in without one is nobody you can ask or connect to.
+# A selectable storyteller must have an account. The tree endpoint also includes relatives
+# added only by name, so it deliberately does not use this query.
 _PEOPLE = """
     select p.id, p.family_id, p.display_name, p.full_name, p.relation_label,
            p.birth_year, p.is_living,
@@ -125,11 +150,7 @@ async def list_people(family_id: UUID, user: CurrentUser) -> list[Person]:
 async def search_people(
     family_id: UUID, user: CurrentUser, q: str = "", limit: int = 5
 ) -> list[Person]:
-    """Ranked name search for request recipients (Brief §3E).
-
-    Returns 0–5 people: text relevance first (exact → prefix → contains →
-    full-name), then social-graph degree, then name. Empty query returns [].
-    """
+    """Rank account-backed storytellers by name relevance, then graph degree and name."""
     query = q.strip()
     if not query:
         return []
@@ -154,3 +175,44 @@ async def search_people(
             limit,
         )
     return [Person(**r) for r in rows]
+
+
+@router.get("/families/{family_id}/tree")
+async def get_tree(family_id: UUID, user: CurrentUser) -> FamilyTree:
+    async with pool().acquire() as conn:
+        me = await require_member(conn, user, family_id)
+        people = await conn.fetch(
+            "select id, family_id, display_name, relation_label, birth_year, is_living "
+            "from person where family_id = $1 order by created_at",
+            family_id,
+        )
+        edges = await conn.fetch(
+            "select a, b, kind from relationship where family_id = $1", family_id
+        )
+        members = await conn.fetch(
+            "select person_id from member where family_id = $1 and person_id is not null",
+            family_id,
+        )
+    return FamilyTree(
+        people=[Person(**r) for r in people],
+        relationships=[Relationship(**r) for r in edges],
+        me=me,
+        member_person_ids=[r["person_id"] for r in members],
+    )
+
+
+@router.post("/people", status_code=status.HTTP_201_CREATED)
+async def create_person(body: CreatePerson, user: CurrentUser) -> Person:
+    async with pool().acquire() as conn:
+        await require_member(conn, user, body.family_id)
+        row = await conn.fetchrow(
+            "insert into person (family_id, display_name, relation_label, birth_year, is_living) "
+            "values ($1, $2, $3, $4, $5) "
+            "returning id, family_id, display_name, relation_label, birth_year, is_living",
+            body.family_id,
+            body.display_name,
+            body.relation_label,
+            body.birth_year,
+            body.is_living,
+        )
+    return Person(**row)

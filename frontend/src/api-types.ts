@@ -65,10 +65,7 @@ export interface paths {
         };
         /**
          * Search People
-         * @description Ranked name search for request recipients (Brief §3E).
-         *
-         *     Returns 0–5 people: text relevance first (exact → prefix → contains →
-         *     full-name), then social-graph degree, then name. Empty query returns [].
+         * @description Rank account-backed storytellers by name relevance, then graph degree and name.
          */
         get: operations["search_people_api_families__family_id__people_search_get"];
         put?: never;
@@ -77,6 +74,167 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/families/{family_id}/tree": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Tree */
+        get: operations["get_tree_api_families__family_id__tree_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/people": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Person */
+        post: operations["create_person_api_people_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/availability/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Availability Settings */
+        get: operations["get_availability_settings_api_availability_settings_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Availability Settings */
+        patch: operations["update_availability_settings_api_availability_settings_patch"];
+        trace?: never;
+    };
+    "/api/availability/override": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set Availability Override */
+        put: operations["set_availability_override_api_availability_override_put"];
+        post?: never;
+        /** Clear Availability Override */
+        delete: operations["clear_availability_override_api_availability_override_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/availability/schedule": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Busy Periods */
+        get: operations["list_busy_periods_api_availability_schedule_get"];
+        put?: never;
+        /** Create Busy Period */
+        post: operations["create_busy_period_api_availability_schedule_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/availability/schedule/{entry_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Busy Period */
+        get: operations["get_busy_period_api_availability_schedule__entry_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Busy Period */
+        delete: operations["delete_busy_period_api_availability_schedule__entry_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Busy Period */
+        patch: operations["update_busy_period_api_availability_schedule__entry_id__patch"];
+        trace?: never;
+    };
+    "/api/families/{family_id}/availability": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Family Availability */
+        get: operations["list_family_availability_api_families__family_id__availability_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/families/{family_id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Events */
+        get: operations["list_events_api_families__family_id__events_get"];
+        put?: never;
+        /** Create Event */
+        post: operations["create_event_api_families__family_id__events_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events/{event_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Event */
+        get: operations["get_event_api_events__event_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Event */
+        delete: operations["delete_event_api_events__event_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Event */
+        patch: operations["update_event_api_events__event_id__patch"];
         trace?: never;
     };
     "/api/heirlooms": {
@@ -429,9 +587,168 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Add Memory */
+        /**
+         * Add Memory
+         * @description Preserve the existing heirloom contribution and its protected pipeline trigger.
+         */
         post: operations["add_memory_api_heirlooms__heirloom_id__memories_post"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/families/{family_id}/memories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Family Memories */
+        get: operations["list_family_memories_api_families__family_id__memories_get"];
+        put?: never;
+        /** Create Family Memory */
+        post: operations["create_family_memory_api_families__family_id__memories_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/memories/{memory_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Family Memory */
+        get: operations["get_family_memory_api_memories__memory_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Family Memory */
+        delete: operations["delete_family_memory_api_memories__memory_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Family Memory */
+        patch: operations["update_family_memory_api_memories__memory_id__patch"];
+        trace?: never;
+    };
+    "/api/memories/{memory_id}/media": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Memory Upload */
+        post: operations["create_memory_upload_api_memories__memory_id__media_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/memories/{memory_id}/media/{media_id}/upload-url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry Memory Upload */
+        post: operations["retry_memory_upload_api_memories__memory_id__media__media_id__upload_url_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/memories/{memory_id}/media/{media_id}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Complete Memory Upload */
+        post: operations["complete_memory_upload_api_memories__memory_id__media__media_id__complete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/memories/{memory_id}/photos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Attach Existing Photo */
+        post: operations["attach_existing_photo_api_memories__memory_id__photos_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/memories/{memory_id}/photos/order": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Reorder Memory Photos */
+        put: operations["reorder_memory_photos_api_memories__memory_id__photos_order_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/memories/{memory_id}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publish Family Memory */
+        post: operations["publish_family_memory_api_memories__memory_id__publish_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/memories/{memory_id}/media/{media_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Memory Media */
+        delete: operations["delete_memory_media_api_memories__memory_id__media__media_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -546,6 +863,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/families/{family_id}/timeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Timeline */
+        get: operations["list_timeline_api_families__family_id__timeline_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/requests": {
         parameters: {
             query?: never;
@@ -555,7 +889,7 @@ export interface paths {
         };
         /**
          * List Requests
-         * @description Across every family you belong to: a connection can ask you about their own objects.
+         * @description The caller's sent/received requests across families, optionally filtered to one family.
          */
         get: operations["list_requests_api_requests_get"];
         put?: never;
@@ -652,6 +986,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/notifications/unread-count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Unread Count */
+        get: operations["unread_count_api_notifications_unread_count_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/notifications/{notification_id}/read": {
         parameters: {
             query?: never;
@@ -685,6 +1036,75 @@ export interface paths {
         head?: never;
         /** Update Profile */
         patch: operations["update_profile_api_profile_patch"];
+        trace?: never;
+    };
+    "/api/families/{family_id}/invites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Invites */
+        get: operations["list_invites_api_families__family_id__invites_get"];
+        put?: never;
+        /** Create Invite */
+        post: operations["create_invite_api_families__family_id__invites_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/invites/{invite_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Invite */
+        get: operations["get_invite_api_invites__invite_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/invites/{invite_id}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Accept Invite */
+        post: operations["accept_invite_api_invites__invite_id__accept_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/invites/{invite_id}/decline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Decline Invite */
+        post: operations["decline_invite_api_invites__invite_id__decline_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/heirlooms/{heirloom_id}/photos/{media_id}/immersive": {
@@ -861,6 +1281,38 @@ export interface components {
             /** Created At */
             created_at: string;
         };
+        /** AttachPhoto */
+        AttachPhoto: {
+            /**
+             * Media Id
+             * Format: uuid
+             */
+            media_id: string;
+        };
+        /** AvailabilitySettings */
+        AvailabilitySettings: {
+            /**
+             * Sharing Enabled
+             * @default false
+             */
+            sharing_enabled?: boolean;
+            /**
+             * Schedule Configured
+             * @default false
+             */
+            schedule_configured?: boolean;
+            /**
+             * Time Zone
+             * @default UTC
+             */
+            time_zone?: string;
+            /** Override Status */
+            override_status?: ("free" | "busy") | null;
+            /** Override Expires At */
+            override_expires_at?: string | null;
+            /** Updated At */
+            updated_at?: string | null;
+        };
         /**
          * BBox
          * @description Normalized 0..1 coordinates on the photo.
@@ -874,6 +1326,47 @@ export interface components {
             w: number;
             /** H */
             h: number;
+        };
+        /** BusyPeriod */
+        BusyPeriod: {
+            /** Private Label */
+            private_label?: string | null;
+            /**
+             * Start Date
+             * Format: date
+             */
+            start_date: string;
+            /**
+             * Start Time
+             * Format: time
+             */
+            start_time: string;
+            /**
+             * End Time
+             * Format: time
+             */
+            end_time: string;
+            /** Time Zone */
+            time_zone: string;
+            /** Repeat Weekdays */
+            repeat_weekdays?: number[];
+            /** Repeat Until */
+            repeat_until?: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /** Candidate */
         Candidate: {
@@ -964,12 +1457,86 @@ export interface components {
                 [key: string]: unknown;
             }[];
         };
+        /** CreateBusyPeriod */
+        CreateBusyPeriod: {
+            /** Private Label */
+            private_label?: string | null;
+            /**
+             * Start Date
+             * Format: date
+             */
+            start_date: string;
+            /**
+             * Start Time
+             * Format: time
+             */
+            start_time: string;
+            /**
+             * End Time
+             * Format: time
+             */
+            end_time: string;
+            /** Time Zone */
+            time_zone: string;
+            /** Repeat Weekdays */
+            repeat_weekdays?: number[];
+            /** Repeat Until */
+            repeat_until?: string | null;
+            /** Idempotency Key */
+            idempotency_key?: string | null;
+        };
+        /** CreateEvent */
+        CreateEvent: {
+            /** Title */
+            title: string;
+            /**
+             * Category
+             * @enum {string}
+             */
+            category: "birthday" | "anniversary" | "family_function" | "cultural_function" | "other";
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Time */
+            time?: string | null;
+            /** Time Zone */
+            time_zone?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Related Person Ids */
+            related_person_ids?: string[];
+            /**
+             * Repeats Annually
+             * @default false
+             */
+            repeats_annually?: boolean;
+            /** Idempotency Key */
+            idempotency_key?: string | null;
+        };
         /** CreateFamily */
         CreateFamily: {
             /** Name */
             name: string;
             /** Your Name */
             your_name: string;
+        };
+        /** CreateFamilyMemory */
+        CreateFamilyMemory: {
+            /** Title */
+            title?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Event Date */
+            event_date?: string | null;
+            /**
+             * Language
+             * @default en
+             */
+            language?: string;
+            /** Idempotency Key */
+            idempotency_key?: string | null;
         };
         /** CreateHeirloom */
         CreateHeirloom: {
@@ -1001,6 +1568,40 @@ export interface components {
             /** Request Id */
             request_id?: string | null;
         };
+        /** CreateInvite */
+        CreateInvite: {
+            /**
+             * Anchor Person Id
+             * Format: uuid
+             */
+            anchor_person_id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "parent" | "child" | "spouse" | "sibling";
+            /** Email */
+            email: string;
+        };
+        /** CreatePerson */
+        CreatePerson: {
+            /**
+             * Family Id
+             * Format: uuid
+             */
+            family_id: string;
+            /** Display Name */
+            display_name: string;
+            /** Relation Label */
+            relation_label?: string | null;
+            /** Birth Year */
+            birth_year?: number | null;
+            /**
+             * Is Living
+             * @default true
+             */
+            is_living?: boolean;
+        };
         /** CreateRequest */
         CreateRequest: {
             /**
@@ -1023,6 +1624,18 @@ export interface components {
             /** Idempotency Key */
             idempotency_key?: string | null;
         };
+        /** CreateUpload */
+        CreateUpload: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "photo" | "audio";
+            /** Mime */
+            mime: string;
+            /** Byte Size */
+            byte_size: number;
+        };
         /** CreatedHeirloom */
         CreatedHeirloom: {
             /**
@@ -1037,6 +1650,63 @@ export interface components {
             media_id: string;
             /** Upload Url */
             upload_url: string;
+        };
+        /** EventOccurrence */
+        EventOccurrence: {
+            /** Title */
+            title: string;
+            /**
+             * Category
+             * @enum {string}
+             */
+            category: "birthday" | "anniversary" | "family_function" | "cultural_function" | "other";
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Time */
+            time?: string | null;
+            /** Time Zone */
+            time_zone?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Related Person Ids */
+            related_person_ids?: string[];
+            /**
+             * Repeats Annually
+             * @default false
+             */
+            repeats_annually?: boolean;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Family Id
+             * Format: uuid
+             */
+            family_id: string;
+            /** Created By */
+            created_by: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /**
+             * Occurrence Date
+             * Format: date
+             */
+            occurrence_date: string;
+            /** Occurrence At */
+            occurrence_at?: string | null;
         };
         /** Fact */
         Fact: {
@@ -1095,6 +1765,179 @@ export interface components {
             name: string;
             /** Invite Code */
             invite_code: string;
+        };
+        /** FamilyAvailability */
+        FamilyAvailability: {
+            /**
+             * Person Id
+             * Format: uuid
+             */
+            person_id: string;
+            /** Display Name */
+            display_name: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "free_now" | "busy_now" | "not_shared";
+            /**
+             * Last Updated At
+             * Format: date-time
+             */
+            last_updated_at: string;
+        };
+        /** FamilyEvent */
+        FamilyEvent: {
+            /** Title */
+            title: string;
+            /**
+             * Category
+             * @enum {string}
+             */
+            category: "birthday" | "anniversary" | "family_function" | "cultural_function" | "other";
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Time */
+            time?: string | null;
+            /** Time Zone */
+            time_zone?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Related Person Ids */
+            related_person_ids?: string[];
+            /**
+             * Repeats Annually
+             * @default false
+             */
+            repeats_annually?: boolean;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Family Id
+             * Format: uuid
+             */
+            family_id: string;
+            /** Created By */
+            created_by: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** FamilyMemoryDetail */
+        FamilyMemoryDetail: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Family Id
+             * Format: uuid
+             */
+            family_id: string;
+            /**
+             * Contributor Id
+             * Format: uuid
+             */
+            contributor_id: string;
+            /** Contributor Name */
+            contributor_name: string;
+            /** Title */
+            title: string | null;
+            /** Event Date */
+            event_date: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "draft" | "published";
+            /** Cover Url */
+            cover_url: string | null;
+            /** Audio Url */
+            audio_url: string | null;
+            /** Published At */
+            published_at: string | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Description */
+            description: string | null;
+            /** Language */
+            language: string;
+            /** Photos */
+            photos: components["schemas"]["MemoryPhoto"][];
+            recording: components["schemas"]["MemoryMedia"] | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** FamilyMemorySummary */
+        FamilyMemorySummary: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Family Id
+             * Format: uuid
+             */
+            family_id: string;
+            /**
+             * Contributor Id
+             * Format: uuid
+             */
+            contributor_id: string;
+            /** Contributor Name */
+            contributor_name: string;
+            /** Title */
+            title: string | null;
+            /** Event Date */
+            event_date: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "draft" | "published";
+            /** Cover Url */
+            cover_url: string | null;
+            /** Audio Url */
+            audio_url: string | null;
+            /** Published At */
+            published_at: string | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** FamilyTree */
+        FamilyTree: {
+            /** People */
+            people: components["schemas"]["Person"][];
+            /** Relationships */
+            relationships: components["schemas"]["Relationship"][];
+            /** Me */
+            me?: string | null;
+            /** Member Person Ids */
+            member_person_ids: string[];
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -1207,6 +2050,50 @@ export interface components {
             /** Spots */
             spots: components["schemas"]["ResolvedSpot"][];
         };
+        /** ImportantDateTimelineItem */
+        ImportantDateTimelineItem: {
+            /** Item Key */
+            item_key: string;
+            /**
+             * Source Id
+             * Format: uuid
+             */
+            source_id: string;
+            /** Title */
+            title: string;
+            /** Description */
+            description: string | null;
+            /** Relevant Date */
+            relevant_date: string | null;
+            /** Relevant Year */
+            relevant_year: number | null;
+            /**
+             * Date Precision
+             * @enum {string}
+             */
+            date_precision: "day" | "year" | "unknown";
+            /** Time */
+            time?: string | null;
+            /** Time Zone */
+            time_zone?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            source_type: "important_date";
+            /**
+             * Category
+             * @enum {string}
+             */
+            category: "birthday" | "anniversary" | "family_function" | "cultural_function" | "other";
+            /**
+             * Original Date
+             * Format: date
+             */
+            original_date: string;
+            /** Repeats Annually */
+            repeats_annually: boolean;
+        };
         /** InferenceSource */
         InferenceSource: {
             /**
@@ -1251,6 +2138,53 @@ export interface components {
              */
             max_questions?: number;
         };
+        /** Invite */
+        Invite: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Family Id
+             * Format: uuid
+             */
+            family_id: string;
+            /** Family Name */
+            family_name: string;
+            /**
+             * Anchor Person Id
+             * Format: uuid
+             */
+            anchor_person_id: string;
+            /** Anchor Name */
+            anchor_name: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "parent" | "child" | "spouse" | "sibling";
+            /** Email */
+            email: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "accepted" | "declined";
+            /** Inviter Name */
+            inviter_name?: string | null;
+            /** Person Id */
+            person_id?: string | null;
+            /** Created At */
+            created_at: string;
+            /** Responded At */
+            responded_at?: string | null;
+            /**
+             * Can Respond
+             * @default false
+             */
+            can_respond?: boolean;
+        };
         /** JoinFamily */
         JoinFamily: {
             /** Invite Code */
@@ -1284,6 +2218,20 @@ export interface components {
              */
             memory_note_id: string;
         };
+        /** MemoryMedia */
+        MemoryMedia: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Mime */
+            mime: string;
+            /** Byte Size */
+            byte_size: number;
+            /** Url */
+            url: string;
+        };
         /** MemoryNote */
         MemoryNote: {
             /**
@@ -1303,6 +2251,22 @@ export interface components {
             author_id: string;
             /** Text */
             text: string | null;
+        };
+        /** MemoryPhoto */
+        MemoryPhoto: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Mime */
+            mime: string;
+            /** Byte Size */
+            byte_size: number;
+            /** Url */
+            url: string;
+            /** Position */
+            position: number;
         };
         /**
          * MemorySource
@@ -1327,6 +2291,71 @@ export interface components {
              */
             narrator_id: string;
         };
+        /** MemoryTimelineItem */
+        MemoryTimelineItem: {
+            /** Item Key */
+            item_key: string;
+            /**
+             * Source Id
+             * Format: uuid
+             */
+            source_id: string;
+            /** Title */
+            title: string;
+            /** Description */
+            description: string | null;
+            /** Relevant Date */
+            relevant_date: string | null;
+            /** Relevant Year */
+            relevant_year: number | null;
+            /**
+             * Date Precision
+             * @enum {string}
+             */
+            date_precision: "day" | "year" | "unknown";
+            /** Time */
+            time?: string | null;
+            /** Time Zone */
+            time_zone?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            source_type: "memory";
+            /**
+             * Contributor Id
+             * Format: uuid
+             */
+            contributor_id: string;
+            /** Contributor Name */
+            contributor_name: string;
+            /**
+             * Event Date
+             * Format: date
+             */
+            event_date: string;
+            /**
+             * Published At
+             * Format: date-time
+             */
+            published_at: string;
+        };
+        /** MemoryUpload */
+        MemoryUpload: {
+            /**
+             * Media Id
+             * Format: uuid
+             */
+            media_id: string;
+            /** Upload Url */
+            upload_url: string;
+            /**
+             * Upload Status
+             * @default uploading
+             * @enum {string}
+             */
+            upload_status?: "uploading" | "failed";
+        };
         /** NewAnswer */
         NewAnswer: {
             /** Audio Mime */
@@ -1344,23 +2373,44 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Recipient Id */
+            recipient_id?: string | null;
             /**
-             * Recipient Id
-             * Format: uuid
+             * Type
+             * @enum {string}
              */
-            recipient_id: string;
-            /** Type */
-            type: string;
+            type: "request_received" | "request_declined" | "story_ready" | "storytime_ready" | "memory_added" | "invite_received" | "invite_accepted" | "invite_declined";
+            /** Message */
+            message: string;
             /** Request Id */
             request_id?: string | null;
             /** Story Id */
             story_id?: string | null;
             /** Heirloom Id */
             heirloom_id?: string | null;
+            /** Invite Id */
+            invite_id?: string | null;
+            /** Memory Id */
+            memory_id?: string | null;
+            /** Related Image Media Id */
+            related_image_media_id?: string | null;
+            /**
+             * Destination Type
+             * @enum {string}
+             */
+            destination_type: "story_request" | "story" | "invitation" | "invitation_status" | "family_tree" | "family_memory";
+            /**
+             * Destination Id
+             * Format: uuid
+             */
+            destination_id: string;
             /** Read At */
             read_at?: string | null;
-            /** Created At */
-            created_at?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /** ObservationSource */
         ObservationSource: {
@@ -1461,8 +2511,20 @@ export interface components {
             /**
              * Ui Mode
              * @default simplified
+             * @enum {string}
              */
-            ui_mode?: string;
+            ui_mode?: "regular" | "simplified" | "extra_simple";
+            /**
+             * Ui Mode Is Manual
+             * @default false
+             */
+            ui_mode_is_manual?: boolean;
+            /**
+             * Preferred Language
+             * @default en
+             * @enum {string}
+             */
+            preferred_language?: "en" | "es" | "hi";
         };
         /**
          * Quote
@@ -1506,6 +2568,29 @@ export interface components {
             speaker_id: string;
             /** Question */
             question: string | null;
+        };
+        /**
+         * Relationship
+         * @description Directed edge: `a` is the `kind` of `b` (a parent of b, a spouse of b, a sibling of b).
+         */
+        Relationship: {
+            /**
+             * A
+             * Format: uuid
+             */
+            a: string;
+            /**
+             * B
+             * Format: uuid
+             */
+            b: string;
+            /** Kind */
+            kind: string;
+        };
+        /** ReorderPhotos */
+        ReorderPhotos: {
+            /** Media Ids */
+            media_ids: string[];
         };
         /** RequestDetail */
         RequestDetail: {
@@ -1640,6 +2725,19 @@ export interface components {
             /** Cites */
             cites: (components["schemas"]["SegmentCite"] | components["schemas"]["FactCite"])[];
         };
+        /** SetAvailabilityOverride */
+        SetAvailabilityOverride: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "free" | "busy";
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+        };
         /** SpotFact */
         SpotFact: {
             /**
@@ -1753,6 +2851,49 @@ export interface components {
             /** Created At */
             created_at?: string | null;
         };
+        /** StoryTimelineItem */
+        StoryTimelineItem: {
+            /** Item Key */
+            item_key: string;
+            /**
+             * Source Id
+             * Format: uuid
+             */
+            source_id: string;
+            /** Title */
+            title: string;
+            /** Description */
+            description: string | null;
+            /** Relevant Date */
+            relevant_date: string | null;
+            /** Relevant Year */
+            relevant_year: number | null;
+            /**
+             * Date Precision
+             * @enum {string}
+             */
+            date_precision: "day" | "year" | "unknown";
+            /** Time */
+            time?: string | null;
+            /** Time Zone */
+            time_zone?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            source_type: "story";
+            /**
+             * Heirloom Id
+             * Format: uuid
+             */
+            heirloom_id: string;
+            /** Story Title */
+            story_title: string;
+            /** Story Version */
+            story_version: number;
+            /** Fact Id */
+            fact_id: string | null;
+        };
         /** StorytimeAvailability */
         StorytimeAvailability: {
             /** Available */
@@ -1809,6 +2950,17 @@ export interface components {
              */
             fact_id: string;
         };
+        /** TimelinePage */
+        TimelinePage: {
+            /** Items */
+            items: (components["schemas"]["ImportantDateTimelineItem"] | components["schemas"]["MemoryTimelineItem"] | components["schemas"]["StoryTimelineItem"])[];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Next Offset */
+            next_offset: number | null;
+        };
         /** Turn */
         Turn: {
             /**
@@ -1825,6 +2977,67 @@ export interface components {
             /** Target Slot */
             target_slot: string | null;
         };
+        /** UnreadCount */
+        UnreadCount: {
+            /** Count */
+            count: number;
+        };
+        /** UpdateAvailabilitySettings */
+        UpdateAvailabilitySettings: {
+            /** Sharing Enabled */
+            sharing_enabled?: boolean | null;
+            /** Schedule Configured */
+            schedule_configured?: boolean | null;
+            /** Time Zone */
+            time_zone?: string | null;
+        };
+        /** UpdateBusyPeriod */
+        UpdateBusyPeriod: {
+            /** Private Label */
+            private_label?: string | null;
+            /** Start Date */
+            start_date?: string | null;
+            /** Start Time */
+            start_time?: string | null;
+            /** End Time */
+            end_time?: string | null;
+            /** Time Zone */
+            time_zone?: string | null;
+            /** Repeat Weekdays */
+            repeat_weekdays?: number[] | null;
+            /** Repeat Until */
+            repeat_until?: string | null;
+        };
+        /** UpdateEvent */
+        UpdateEvent: {
+            /** Title */
+            title?: string | null;
+            /** Category */
+            category?: ("birthday" | "anniversary" | "family_function" | "cultural_function" | "other") | null;
+            /** Date */
+            date?: string | null;
+            /** Time */
+            time?: string | null;
+            /** Time Zone */
+            time_zone?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Related Person Ids */
+            related_person_ids?: string[] | null;
+            /** Repeats Annually */
+            repeats_annually?: boolean | null;
+        };
+        /** UpdateFamilyMemory */
+        UpdateFamilyMemory: {
+            /** Title */
+            title?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Event Date */
+            event_date?: string | null;
+            /** Language */
+            language?: string | null;
+        };
         /** UpdateProfile */
         UpdateProfile: {
             /** Display Name */
@@ -1832,7 +3045,9 @@ export interface components {
             /** Age */
             age?: number | null;
             /** Ui Mode */
-            ui_mode?: string | null;
+            ui_mode?: ("regular" | "simplified" | "extra_simple") | null;
+            /** Preferred Language */
+            preferred_language?: ("en" | "es" | "hi") | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -2019,6 +3234,534 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Person"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_tree_api_families__family_id__tree_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                family_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FamilyTree"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_person_api_people_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePerson"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Person"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_availability_settings_api_availability_settings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AvailabilitySettings"];
+                };
+            };
+        };
+    };
+    update_availability_settings_api_availability_settings_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateAvailabilitySettings"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AvailabilitySettings"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_availability_override_api_availability_override_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetAvailabilityOverride"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AvailabilitySettings"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    clear_availability_override_api_availability_override_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    list_busy_periods_api_availability_schedule_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusyPeriod"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_busy_period_api_availability_schedule_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateBusyPeriod"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusyPeriod"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_busy_period_api_availability_schedule__entry_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusyPeriod"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_busy_period_api_availability_schedule__entry_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_busy_period_api_availability_schedule__entry_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateBusyPeriod"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusyPeriod"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_family_availability_api_families__family_id__availability_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                family_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FamilyAvailability"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_events_api_families__family_id__events_get: {
+        parameters: {
+            query: {
+                start: string;
+                end: string;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                family_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventOccurrence"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_event_api_families__family_id__events_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                family_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateEvent"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FamilyEvent"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_event_api_events__event_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FamilyEvent"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_event_api_events__event_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_event_api_events__event_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateEvent"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FamilyEvent"];
                 };
             };
             /** @description Validation Error */
@@ -2708,6 +4451,401 @@ export interface operations {
             };
         };
     };
+    list_family_memories_api_families__family_id__memories_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+                include_my_drafts?: boolean;
+            };
+            header?: never;
+            path: {
+                family_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FamilyMemorySummary"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_family_memory_api_families__family_id__memories_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                family_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateFamilyMemory"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FamilyMemoryDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_family_memory_api_memories__memory_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                memory_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FamilyMemoryDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_family_memory_api_memories__memory_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                memory_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_family_memory_api_memories__memory_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                memory_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateFamilyMemory"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FamilyMemoryDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_memory_upload_api_memories__memory_id__media_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                memory_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateUpload"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryUpload"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retry_memory_upload_api_memories__memory_id__media__media_id__upload_url_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                memory_id: string;
+                media_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryUpload"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    complete_memory_upload_api_memories__memory_id__media__media_id__complete_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                memory_id: string;
+                media_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FamilyMemoryDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    attach_existing_photo_api_memories__memory_id__photos_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                memory_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AttachPhoto"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FamilyMemoryDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reorder_memory_photos_api_memories__memory_id__photos_order_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                memory_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReorderPhotos"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FamilyMemoryDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    publish_family_memory_api_memories__memory_id__publish_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                memory_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FamilyMemoryDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_memory_media_api_memories__memory_id__media__media_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                memory_id: string;
+                media_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_story_api_stories__heirloom_id__get: {
         parameters: {
             query?: never;
@@ -2947,10 +5085,48 @@ export interface operations {
             };
         };
     };
+    list_timeline_api_families__family_id__timeline_get: {
+        parameters: {
+            query: {
+                start: string;
+                end: string;
+                limit?: number;
+                offset?: number;
+                include_unknown?: boolean;
+            };
+            header?: never;
+            path: {
+                family_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimelinePage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_requests_api_requests_get: {
         parameters: {
             query?: {
                 scope?: string;
+                family_id?: string | null;
             };
             header?: never;
             path?: never;
@@ -3137,7 +5313,11 @@ export interface operations {
     };
     list_notifications_api_notifications_get: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number;
+                offset?: number;
+                unread_only?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -3151,6 +5331,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Notification"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unread_count_api_notifications_unread_count_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnreadCount"];
                 };
             };
         };
@@ -3226,6 +5435,165 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Profile"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_invites_api_families__family_id__invites_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                family_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Invite"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_invite_api_families__family_id__invites_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                family_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateInvite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Invite"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_invite_api_invites__invite_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                invite_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Invite"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    accept_invite_api_invites__invite_id__accept_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                invite_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Invite"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decline_invite_api_invites__invite_id__decline_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                invite_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Invite"];
                 };
             };
             /** @description Validation Error */

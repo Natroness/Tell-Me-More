@@ -25,8 +25,8 @@ if not os.environ.get("TEST_DATABASE_URL"):
 
 @dataclass
 class FakeLLM:
-    """Returns the queued response for whichever schema a stage asks for (`str` for plain text).
-    A list is served in order, one item per call."""
+    """Returns the queued response for whichever schema a stage asks for. A list is served in
+    order, one item per call."""
 
     responses: dict[type, Any] = field(default_factory=dict)
     calls: list[dict] = field(default_factory=list)
@@ -70,8 +70,7 @@ class FakeSearch:
 
 @dataclass
 class FakeStreamingASR:
-    """Sends a partial per audio chunk (`partials` in order, else "heard N"), then returns
-    `result` (or raises `fail`)."""
+    """Echoes a partial per audio chunk, then returns `result` (or raises `fail`)."""
 
     result: StreamedTranscript | None = None
     fail: Exception | None = None
@@ -160,6 +159,7 @@ class Fakes:
     tts: FakeTTS
     stock: FakeStock
     files: dict[str, bytes]
+    file_mimes: dict[str, str]
 
 
 @pytest.fixture
@@ -174,6 +174,7 @@ async def fakes(monkeypatch) -> Fakes:
         tts=FakeTTS(),
         stock=FakeStock(),
         files={},
+        file_mimes={},
     )
     monkeypatch.setattr(
         providers,
@@ -198,17 +199,31 @@ async def fakes(monkeypatch) -> Fakes:
     async def signed_download_url(bucket, path, expires_in=3600):
         return f"https://storage.test/{bucket}/{path}"
 
-    async def upload(bucket, path, data, mime):
-        f.files[path] = data
+    async def signed_upload_url(bucket, path):
+        return f"https://upload.test/{bucket}/{path}"
 
-    async def remove(bucket, paths):
+    async def object_info(bucket, path):
+        data = f.files.get(path)
+        if data is None:
+            return None
+        return storage.StoredObject(byte_size=len(data), mime=f.file_mimes[path])
+
+    async def delete_objects(bucket, paths):
         for path in paths:
             f.files.pop(path, None)
+            f.file_mimes.pop(path, None)
 
-    monkeypatch.setattr(storage, "remove", remove)
+    async def upload(bucket, path, data, mime):
+        f.files[path] = data
+        f.file_mimes[path] = mime
+
     monkeypatch.setattr(storage, "download", download)
     monkeypatch.setattr(storage, "upload", upload)
     monkeypatch.setattr(storage, "signed_download_url", signed_download_url)
+    monkeypatch.setattr(storage, "signed_upload_url", signed_upload_url)
+    monkeypatch.setattr(storage, "object_info", object_info)
+    monkeypatch.setattr(storage, "delete_objects", delete_objects)
+    monkeypatch.setattr(storage, "remove", delete_objects)
     return f
 
 
