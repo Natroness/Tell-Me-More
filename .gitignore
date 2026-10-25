@@ -1,0 +1,54 @@
+/agentmem
+
+# Secrets. Only the .env.example templates are committed.
+.env
+.env.*
+!.env.example
+*.local
+*.pem
+*.key
+*.p12
+service-account*.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Node / frontend
+node_modules/
+dist/
+dist-ssr/
+*.tsbuildinfo
+# Temporary spec written by `make types`
+frontend/openapi.json
+
+# Supabase CLI local state (local stack, linked project, branches)
+supabase/.temp/
+supabase/.branches/
+
+# Logs
+*.log
+logs/
+
+# Editors and OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Personal Claude Code settings (shared project config stays committed)
+.claude/settings.local.json
+CLAUDE.local.md
+
+.claude/
+
+.mcp.json
