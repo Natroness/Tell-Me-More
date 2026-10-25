@@ -38,12 +38,14 @@ class Settings(BaseSettings):
     # Storytime is English-only and never enqueued by the interview pipeline.
     storytime_enabled: bool = False
     storytime_daily_limit_per_family: int = Field(5, ge=0)
-    storytime_min_seconds: float = Field(60, ge=1)
-    storytime_max_seconds: float = Field(150, ge=1)
+    storytime_min_seconds: float = Field(30, ge=1)  # Script target; never pad short memories.
+    storytime_max_seconds: float = Field(75, ge=1)
     tts_provider: Literal["gemini"] = "gemini"
     tts_model: str = "gemini-3.8-flash-tts"
     tts_voice: str = "Sulafat"
     pixabay_api_key: str = ""
+    ffmpeg_binary: str = "ffmpeg"
+    ffprobe_binary: str = "ffprobe"
 
     # Immersive memories (docs/IMMERSIVE.md). The World API v1 key comes from platform.worldlabs.ai.
     worldlabs_api_key: str = Field(

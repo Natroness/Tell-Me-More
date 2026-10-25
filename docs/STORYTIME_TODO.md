@@ -11,6 +11,47 @@ Scope: English-only, opt-in family story videos with a fixed AI narrator, origin
 
 ## Ordered implementation
 
+### Shorter, faster, context-led videos — 2026-10-25
+
+- [x] Fast-forward the clean local main to remote `c68c3b5`, preserving `5980bca` on `codex/storytime-before-main-c68c3b5`.
+- [x] Run the integrated baseline: 155 passed, one FFmpeg environment failure; verify the installed libass-capable binary separately.
+- [x] Separate the exact speech transcript from delivery metadata; invalidate cached prompt-prefixed audio.
+- [x] Halve the duration target to 30–75 seconds, reduce script/voice budgets and cards/pauses, preserve complete original speech.
+- [x] Generate pictures and bounded concurrent narration together, reuse repeated assets locally, and avoid repeated image scaling per frame.
+- [x] Align scene changes with context and measured speech; choose stock by subject tags and provide scene-grounded illustration fallbacks.
+- [x] Verify resumption/cancellation, concurrency, duration, captions, real multi-scene FFmpeg, live English TTS, and encoder timings; document limits.
+
+Verification for this revision:
+
+- **167 backend tests passed** in 12.54 s, including a complete seven-scene 720p H.264/AAC
+  render with real FFmpeg, removal during parallel preparation, cache invalidation/resumption,
+  image relevance ranking, and measured caption timing. No hosted records were changed.
+- `make lint` and frontend production build passed; the three existing Fast Refresh warnings
+  and existing Vite configuration/chunk-size warnings remain. Frozen interview/capture files
+  match `c68c3b5`; `git diff --check` passed.
+- Live English TTS + independent Meta ASR: 4.22 s to produce 5.72 s of narration; the
+  transcription contains the story sentence and no delivery instruction. A subsequent
+  stateless TTS service probe passed in 2.35 s. Pixabay returned eight images in 0.37 s.
+- Fixed local executable selection: `uv` selected the broken Homebrew `ffmpeg/8.1` binary
+  (missing x265 library). Local ignored `backend/.env` now selects the installed libass-capable
+  `ffmpeg-full/8.1.1` binaries via `FFMPEG_BINARY`/`FFPROBE_BINARY`. No package installation.
+- Same seven-scene synthetic 720p gradient/caption/music workload on this Mac:
+
+  | Renderer | Video duration | Encode time |
+  | --- | ---: | ---: |
+  | Previous `c68c3b5` renderer | 60 s | 9.72 s |
+  | Updated renderer | 60 s | 5.11 s |
+  | Updated renderer, half-length edit | 30 s | 2.74 s |
+
+  These are individual local encoder measurements, not full generation benchmarks. Muse
+  image latency, stock discovery, speech synthesis and upload time still affect total wait.
+  A new family story should be generated for visual/editorial acceptance; existing ready
+  videos retain their old edit until the owner chooses Regenerate.
+- Storytime changes require no new migration or API key. The separately pulled supporting
+  backend migrations were subsequently applied during the
+  [frontend integration](FRONTEND_INTEGRATION.md); the historical init-version CLI alias
+  remains unchanged.
+
 - [x] **1 — Foundation:** migration, domain models, feature flag/settings, TTS/stock protocols and adapters, fakes, storage paths, and slow job registration. Verify the baseline suite and migration locally.
 - [x] **2 — Script:** load a published story and its sources, generate/validate a cited English storyboard, constrain original clips to the storyteller and one answer turn, retry invalid output once, and queue rendering transactionally.
 - [x] **3 — Render:** resumable asset gathering/narration, measured audio timeline, pure FFmpeg argument builder, captions/title/credits, gentle motion/crossfades, music ducking/muting, MP4/poster upload, and completion notifications. Verify with real FFmpeg.
@@ -49,6 +90,6 @@ Keep `STORYTIME_ENABLED=false` by default. Prepare and test the migration agains
 ## Remaining live acceptance checks
 
 - [ ] Enable `STORYTIME_ENABLED=true` on the intended app worker and restart it after confirming FFmpeg/fonts and the configured provider credentials are present there.
-- [ ] Create a video explicitly from the story page (or run the synthetic `--storytime` diagnostic). Inspect narration/citations, original-voice cut boundaries, music/captions, and the resulting 60–150 second video.
+- [ ] Create a video explicitly from the story page (or run the synthetic `--storytime` diagnostic). Inspect narration/citations, original-voice cut boundaries, music/captions, and the resulting 30–75 second video.
 - [ ] Test logged-in member and public-link playback on a phone, including Realtime/polling progress and regeneration/removal controls.
 - [ ] Measure complete generation time and interview latency under a real render on the target worker; the five-minute and ±10% latency targets have not yet been measured.

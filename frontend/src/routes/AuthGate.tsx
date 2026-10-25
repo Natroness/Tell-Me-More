@@ -50,7 +50,7 @@ export function Entry() {
 
   if (!ready) return <BootScreen />
   if (!session) return <Welcome />
-  if (!supabaseConfigured) return <ProfileError detail="add the supabase keys in frontend/.env.local." />
+  if (!supabaseConfigured) return <ProfileError detail="sign-in is not available right now. please try again later." />
   if (waitingOnProfile(true, !!profile.data, profile.isError)) return <BootScreen />
   if (profile.isError) return <ProfileError detail={profile.error.message} />
   if (profile.data?.age == null) return <Navigate to="/onboarding" replace />
@@ -68,7 +68,7 @@ export function PublicOnly() {
   if (!ready) return <BootScreen />
   if (!session) return <Outlet />
   if (editing && location.pathname === '/sign-up') return <Outlet />
-  if (!supabaseConfigured) return <ProfileError detail="add the supabase keys in frontend/.env.local." />
+  if (!supabaseConfigured) return <ProfileError detail="sign-in is not available right now. please try again later." />
   if (waitingOnProfile(true, !!profile.data, profile.isError)) return <BootScreen />
   if (profile.isError) return <ProfileError detail={profile.error.message} />
   if (profile.data?.age == null) return <Navigate to="/onboarding" replace />
@@ -89,7 +89,7 @@ export function RequireAuth() {
 export function RequireOnboarding() {
   const location = useLocation()
   const profile = useProfile()
-  if (!supabaseConfigured) return <ProfileError detail="add the supabase keys in frontend/.env.local." />
+  if (!supabaseConfigured) return <ProfileError detail="sign-in is not available right now. please try again later." />
   if (waitingOnProfile(true, !!profile.data, profile.isError)) return <BootScreen />
   if (profile.isError) return <ProfileError detail={profile.error.message} />
   if (profile.data?.age == null) {

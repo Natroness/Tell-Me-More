@@ -106,11 +106,23 @@ class StockPhoto(BaseModel):
     page_url: str
     provider: str = "Pixabay"
     asset_id: str = ""
+    tags: str = ""
     license_url: str = "https://pixabay.com/service/license-summary/"
 
 
 class StockImages(Protocol):
     async def search(self, query: str, *, orientation: str = "landscape") -> list[StockPhoto]: ...
+
+
+class ImageResult(BaseModel):
+    """A photo found on the web. `url` is the full-size file; `page_url` is where it was
+    published, kept to credit it."""
+
+    url: str
+    page_url: str
+    title: str = ""
+    width: int | None = None
+    via: Literal["google_images", "google_maps"]
 
 
 class Search(Protocol):
@@ -119,6 +131,11 @@ class Search(Protocol):
     async def web(
         self, q: str, engine: Literal["google", "google_news"] = "google"
     ) -> list[SerpResult]: ...
+
+    async def images(self, q: str) -> list[ImageResult]: ...
+
+    # Photos taken inside one named place on Google Maps; empty if Maps finds no such place.
+    async def place_photos(self, place: str) -> list[ImageResult]: ...
 
 
 class WorldAssets(BaseModel):

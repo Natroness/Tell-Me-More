@@ -39,11 +39,17 @@ make check          # live API checks with your real keys
 
 English-only Storytime is an opt-in slideshow made after a published story exists. It uses
 Muse for a cited script and illustrations, a fixed Gemini narrator, original storyteller audio,
-and optional Pixabay photos. Progress and native MP4 playback appear on member and public story pages.
+and optional Pixabay photos. Videos target **30–75 seconds**, with context-based scene changes,
+one original voice excerpt, and no silent padding for shorter memories. Progress and native MP4
+playback appear on member and public story pages.
 
 1. Apply the new `supabase/migrations/20261026000000_storytime.sql` migration after earlier migrations.
 2. Install **FFmpeg and ffprobe with libass** on the backend worker (for example,
-   `sudo apt-get install ffmpeg fonts-dejavu-core` on Ubuntu). Both must be on `PATH`.
+   `sudo apt-get install ffmpeg fonts-dejavu-core` on Ubuntu). Both must be on `PATH`, or set
+   `FFMPEG_BINARY` and `FFPROBE_BINARY` to absolute paths. On macOS, `brew install ffmpeg-full`
+   supplies libass; its keg-only binaries are normally `/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg`
+   and `/opt/homebrew/opt/ffmpeg-full/bin/ffprobe` on Apple Silicon. Configure these in `backend/.env`
+   when `uv` selects another build.
 3. Set `GEMINI_API_KEY`; optionally set `PIXABAY_API_KEY` for stock. The existing Meta and Supabase
    credentials are reused. Defaults: `TTS_MODEL=gemini-3.8-flash-tts`, `TTS_VOICE=Sulafat`.
 4. Run `cd backend && uv run python -m scripts.check_services --storytime-only` to check media tools,
@@ -56,4 +62,17 @@ and optional Pixabay photos. Progress and native MP4 playback appear on member a
 Videos use private storage and signed playback URLs. Regeneration retains the previous video until
 its replacement succeeds. The shared slow lane bounds jobs, and one encoder at a time uses two threads.
 Original synthesized music and its CC0 notice live in `backend/app/assets/music/`.
+Delivery instructions use Gemini speech metadata, separate from the spoken transcript. Pictures
+and two concurrent narration requests are prepared together; repeated photos reuse one asset.
+Regenerate an existing video to apply the shorter edit and corrected narration. No additional API
+key or Storytime database migration is needed for these changes.
 Implementation checklist and verification: [docs/STORYTIME_TODO.md](docs/STORYTIME_TODO.md).
+
+## Frontend integration checks
+
+The redesigned frontend is integrated with the existing Storytime and Immersive features.
+Run `pnpm --dir frontend exec playwright install chromium --only-shell` once, then
+`pnpm --dir frontend test:ui` for desktop/mobile browser checks. Tests use synthetic
+sessions and mocked services on port 4175; they leave the running app and hosted records
+alone. Integration fixes, migration readback, and verification limits are recorded in
+[docs/FRONTEND_INTEGRATION.md](docs/FRONTEND_INTEGRATION.md).

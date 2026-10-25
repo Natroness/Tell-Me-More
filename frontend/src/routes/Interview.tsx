@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Mic, Pause, Play } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router'
@@ -34,6 +34,8 @@ export function Interview() {
   useScreenTitle('tell the story')
   const { interviewId } = useParams() as { interviewId: string }
   const navigate = useNavigate()
+  const qc = useQueryClient()
+  const startup = useRef(0)
   const from = (useLocation().state as InterviewState | null) ?? {}
   const { mode } = useDisplayMode()
   const recording = useRef<Recording | null>(null)
@@ -50,6 +52,7 @@ export function Interview() {
 
   const interview = useQuery({
     queryKey: ['interview', interviewId],
+    refetchInterval: (q) => q.state.data?.state === 'thinking' ? 3000 : false,
     queryFn: async () => {
       const { data, error } = await api.GET('/api/interviews/{interview_id}', path)
       if (error || !data) throw new Error(formatApiError(error, 'we could not open this interview.'))
@@ -58,7 +61,13 @@ export function Interview() {
   })
   const turns = useQuery({
     queryKey: ['turns', interviewId],
-    queryFn: async () => (await api.GET('/api/interviews/{interview_id}/turns', path)).data ?? [],
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/interviews/{interview_id}/turns', path)
+      if (error || !data) throw new Error(formatApiError(error, 'we could not load the questions.'))
+      return data
+    },
+    refetchInterval: (q) => interview.data?.state !== 'done' && interview.data?.state !== 'wrapping_up'
+      && (interview.data?.state === 'thinking' || q.state.data?.at(-1)?.role === 'answer') ? 3000 : false,
   })
   const heirloomId = interview.data?.heirloom_id
   const heirloom = useQuery({
@@ -76,7 +85,14 @@ export function Interview() {
   useEffect(() => {
     if (latestQuestion?.text) void speak(latestQuestion.text, interview.data?.language ?? 'en')
   }, [latestQuestion?.id]) // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => () => stopSpeaking(), [])
+  useEffect(() => () => {
+    startup.current += 1
+    stopSpeaking()
+    void recording.current?.stop()
+    recording.current = null
+    stream.current?.abort()
+    stream.current = null
+  }, [])
 
   // The transcript streams while they speak; if that fails, upload the recording instead.
   const submit = useMutation({
@@ -85,7 +101,22 @@ export function Interview() {
       const live = stream.current
       stream.current = null
       try {
-        await live!.end()
+        const reply = await live!.end()
+        qc.setQueryData<Schemas['Turn'][]>(['turns', interviewId], (previous = []) => {
+          let next = previous.map((t) => t.id === upload.turn_id ? { ...t, text: reply.text } : t)
+          const lastIndex = Math.max(0, ...next.map((t) => t.idx))
+          if (!next.some((t) => t.id === upload.turn_id)) {
+            next = [...next, { id: upload.turn_id, idx: lastIndex + 1, role: 'answer', text: reply.text, target_slot: null }]
+          }
+          const question = reply.question
+          if (question && !next.some((t) => t.id === question.id)) {
+            next = [...next, { id: question.id, idx: Math.max(...next.map((t) => t.idx)) + 1, role: 'question', text: question.text, target_slot: null }]
+          }
+          return next
+        })
+        qc.setQueryData<Schemas['Interview']>(['interview', interviewId], (previous) => previous
+          ? { ...previous, state: reply.ended ? 'wrapping_up' : reply.question ? 'asking' : 'thinking' }
+          : previous)
       } catch {
         live?.abort()
         await putToSignedUrl(upload.upload_url, wav)
@@ -93,7 +124,13 @@ export function Interview() {
           params: { path: { interview_id: interviewId, turn_id: upload.turn_id } },
         })
         if (error) throw new Error(formatApiError(error, "we couldn't save that answer. try again."))
+        qc.setQueryData<Schemas['Interview']>(['interview', interviewId], (previous) => previous
+          ? { ...previous, state: 'thinking' } : previous)
       }
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['turns', interviewId] })
+      void qc.invalidateQueries({ queryKey: ['interview', interviewId] })
     },
   })
   const shareUrl = () => {
@@ -118,27 +155,42 @@ export function Interview() {
       setCaption('')
       setMicError('')
       setStarting(true)
+      stopSpeaking()
+      const generation = ++startup.current
       const backlog: ArrayBuffer[] = []
-      let rec: Recording | null = null
+      let cancelled = false
       try {
         const [started, created] = await Promise.all([
-          startRecording((pcm) => (stream.current ? stream.current.send(pcm) : backlog.push(pcm))),
+          startRecording((pcm) => (stream.current ? stream.current.send(pcm) : backlog.push(pcm))).then((started) => {
+            if (cancelled || startup.current !== generation) {
+              void started.stop()
+              throw new Error('recording cancelled')
+            }
+            recording.current = started
+            return started
+          }),
           api.POST('/api/interviews/{interview_id}/answers', {
             ...path,
             body: { audio_mime: 'audio/wav' },
+          }).then((created) => {
+            if (!created.data) throw new Error(formatApiError(created.error, "we couldn't start recording. try again."))
+            return created.data
           }),
         ])
-        rec = started
-        if (!created.data) throw new Error(formatApiError(created.error, "we couldn't start recording. try again."))
-        answer.current = created.data
-        stream.current = openAnswerStream(interviewId, created.data.turn_id, setCaption)
+        if (startup.current !== generation) return
+        answer.current = created
+        stream.current = openAnswerStream(interviewId, created.turn_id, setCaption)
         backlog.splice(0).forEach((pcm) => stream.current!.send(pcm))
-        recording.current = rec
+        recording.current = started
         setLevel(() => started.level)
         setPaused(false)
         setIsRecording(true)
       } catch (e) {
-        await rec?.stop().catch(() => undefined)
+        cancelled = true
+        if (startup.current !== generation) return
+        await recording.current?.stop().catch(() => undefined)
+        recording.current = null
+        if (startup.current !== generation) return
         setMicError(
           e instanceof DOMException
             ? "we couldn't use the microphone. allow it in your browser settings and try again."
@@ -147,11 +199,14 @@ export function Interview() {
               : "we couldn't start recording. try again.",
         )
       } finally {
-        setStarting(false)
+        if (startup.current === generation) setStarting(false)
       }
       return
     }
-    const wav = await recording.current!.stop()
+    const rec = recording.current
+    if (!rec) return
+    recording.current = null
+    const wav = await rec.stop()
     buzz(HAPTIC.stop)
     stopSpeaking()
     setIsRecording(false)

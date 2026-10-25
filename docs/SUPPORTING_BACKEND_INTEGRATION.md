@@ -1,5 +1,8 @@
 # Main-based supporting backend integration
 
+This records the original review. The later authorized hosted application and frontend
+verification are documented in [FRONTEND_INTEGRATION.md](FRONTEND_INTEGRATION.md).
+
 Base: `origin/main` at `5980bca6b9d8ba6a955f6b3b1abf29b12f90bf0d`.
 Review branch: `codex/supporting-main-integration`.
 

@@ -6,11 +6,12 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException, Response
 
+from app import world_reference
 from app.auth import User
 from app.config import get_settings
 from app.jobs.stages import immersive_world
-from app.models import HotspotPlan, SceneSpec, SpotPosition, SpotPositions
-from app.providers.base import RateLimited, WorldAssets, WorldOp
+from app.models import HotspotPlan, ReferencePicks, SceneSpec, SpotPosition, SpotPositions
+from app.providers.base import ImageResult, RateLimited, WorldAssets, WorldOp
 from app.routers import immersive
 
 ASSETS = WorldAssets(
@@ -90,13 +91,48 @@ async def story(conn, seed, fakes) -> Story:
     return Story(memory_id, observation_id, segment_id)
 
 
-def scene(*fact_ids, mode="text"):
+def scene(*fact_ids, mode="text", place_query=None, place_name=None):
     return SceneSpec(
         input_mode=mode,
         scene_prompt="A sunlit courtyard with a neem tree and a brass lamp on a low wall.",
         used_fact_ids=list(fact_ids),
         hotspots=[HotspotPlan(label="The neem tree", fact_ids=list(fact_ids))],
+        place_query=place_query,
+        place_name=place_name,
     )
+
+
+def photo(name, via="google_images", width=2000):
+    return ImageResult(
+        url=f"https://img.test/{name}.jpg",
+        page_url=f"https://page.test/{name}",
+        title=name,
+        width=width if via == "google_images" else None,
+        via=via,
+    )
+
+
+@pytest.fixture
+def web(monkeypatch):
+    """What each web photo URL downloads as. A URL left out fails to download."""
+    files: dict[str, bytes] = {}
+
+    async def download(url):
+        return files.get(url)
+
+    monkeypatch.setattr(world_reference, "_download", download)
+    return files
+
+
+def courtyard_photos(fakes, web, *names, via="google_images"):
+    found = [photo(n, via) for n in names]
+    for p in found:
+        web[p.url] = b"\xff\xd8full-" + p.title.encode()
+    if via == "google_maps":
+        fakes.search.place_found = found
+    else:
+        fakes.search.images_found = found
+    return found
 
 
 def ready_world(fakes, story):
@@ -286,6 +322,133 @@ async def test_a_wide_photo_of_a_place_is_sent_as_the_image(conn, fakes, seed, s
     await immersive_world.run(world.id)
 
     assert fakes.world.started[0]["image"].data == b"\xff\xd8fake-jpeg"
+
+
+async def test_a_close_up_world_is_built_on_a_real_photo_of_the_place(
+    conn, fakes, seed, story, web
+):
+    ready_world(fakes, story)
+    fakes.llm.responses[SceneSpec] = scene(story.memory_id, place_query="village courtyard")
+    courtyard_photos(fakes, web, "crowded", "courtyard")
+    fakes.llm.responses[ReferencePicks] = ReferencePicks(ranked=[1])
+    world, _ = await ask(seed)
+
+    await immersive_world.run(world.id)
+
+    row = await status_of(conn, world.id)
+    assert (row["status"], row["input_mode"]) == ("ready", "reference")
+    assert fakes.search.queries == ["village courtyard"] and fakes.search.places == []
+    assert fakes.world.started[0]["image"].data == b"\xff\xd8full-courtyard"
+    assert row["reference"]["path"].startswith(f"{seed.family_id}/")
+    assert fakes.files[row["reference"]["path"]] == b"\xff\xd8full-courtyard"
+    walk = await immersive.get_world(world.id, User(id=seed.user_id))
+    assert walk.reference and walk.reference.page_url == "https://page.test/courtyard"
+
+
+async def test_a_named_place_offers_its_own_photos_first(conn, fakes, seed, story, web):
+    ready_world(fakes, story)
+    fakes.llm.responses[SceneSpec] = scene(
+        story.memory_id, place_query="village courtyard", place_name="Haveli Ram Nagar"
+    )
+    courtyard_photos(fakes, web, "any-courtyard")
+    courtyard_photos(fakes, web, "the-haveli", via="google_maps")
+    fakes.llm.responses[ReferencePicks] = ReferencePicks(ranked=[0])
+    world, _ = await ask(seed)
+
+    await immersive_world.run(world.id)
+
+    row = await status_of(conn, world.id)
+    assert fakes.search.places == ["Haveli Ram Nagar"]
+    assert row["reference"]["via"] == "google_maps"
+    assert fakes.world.started[0]["image"].data == b"\xff\xd8full-the-haveli"
+
+
+async def test_a_photo_that_will_not_download_is_never_offered(conn, fakes, seed, story, web):
+    ready_world(fakes, story)
+    fakes.llm.responses[SceneSpec] = scene(story.memory_id, place_query="village courtyard")
+    gone, kept = courtyard_photos(fakes, web, "gone", "kept")
+    web[gone.url] = b"<html>a page, not a photo</html>"
+    fakes.llm.responses[ReferencePicks] = ReferencePicks(ranked=[0])
+    world, _ = await ask(seed)
+
+    await immersive_world.run(world.id)
+
+    assert (await status_of(conn, world.id))["reference"]["url"] == kept.url
+
+
+async def test_without_a_usable_photo_the_world_is_built_from_words(conn, fakes, seed, story, web):
+    ready_world(fakes, story)
+    fakes.llm.responses[SceneSpec] = scene(story.memory_id, place_query="village courtyard")
+    courtyard_photos(fakes, web, "a-logo")
+    fakes.llm.responses[ReferencePicks] = ReferencePicks(ranked=[])
+    world, _ = await ask(seed)
+
+    await immersive_world.run(world.id)
+
+    row = await status_of(conn, world.id)
+    assert (row["status"], row["input_mode"], row["reference"]) == ("ready", "text", None)
+    assert fakes.world.started[0]["image"] is None
+
+
+async def test_a_failed_photo_search_never_fails_the_world(
+    conn, fakes, seed, story, web, monkeypatch
+):
+    ready_world(fakes, story)
+    fakes.llm.responses[SceneSpec] = scene(story.memory_id, place_query="village courtyard")
+
+    async def down(q):
+        raise RuntimeError("SerpApi is down")
+
+    monkeypatch.setattr(fakes.search, "images", down)
+    world, _ = await ask(seed)
+
+    await immersive_world.run(world.id)
+
+    row = await status_of(conn, world.id)
+    assert (row["status"], row["input_mode"]) == ("ready", "text")
+
+
+async def test_a_wide_family_photo_never_searches_the_web(conn, fakes, seed, story, web):
+    ready_world(fakes, story)
+    fakes.llm.responses[SceneSpec] = scene(
+        story.memory_id, mode="image", place_query="village courtyard"
+    )
+    world, _ = await ask(seed)
+
+    await immersive_world.run(world.id)
+
+    assert fakes.search.queries == []
+    assert (await status_of(conn, world.id))["input_mode"] == "image"
+
+
+def test_the_shortlist_puts_the_named_place_first_and_drops_small_photos():
+    big, small, maps = photo("big"), photo("small", width=640), photo("inside", "google_maps")
+    assert world_reference.shortlist([maps], [big, small, big]) == [maps, big]
+
+
+async def test_maps_photos_come_from_inside_the_place(monkeypatch):
+    from app.providers.serpapi import SerpApi
+
+    asked = []
+
+    async def search(self, params):
+        asked.append(params)
+        if params["engine"] == "google_maps":
+            return {"place_results": {"title": "Haveli", "address": "Ram Nagar", "data_id": "d1"}}
+        if "category_id" not in params:
+            return {"categories": [{"title": "Inside", "id": "in"}], "photos": []}
+        return {
+            "photos": [
+                {"image": "https://lh.test/a=w4032", "thumbnail": "https://lh.test/a=w203"},
+                {"image": "https://lh.test/v", "video": "https://lh.test/v"},
+            ]
+        }
+
+    monkeypatch.setattr(SerpApi, "_search", search)
+    [p] = await SerpApi(get_settings(), cache=False).place_photos("Haveli Ram Nagar")
+    assert asked[-1] == {"engine": "google_maps_photos", "data_id": "d1", "category_id": "in"}
+    assert (p.url, p.via) == ("https://lh.test/a=w4032", "google_maps")
+    assert p.page_url == "https://www.google.com/maps/search/?api=1&query=Haveli+Ram+Nagar"
 
 
 async def test_a_restarted_job_polls_the_same_world_instead_of_starting_another(

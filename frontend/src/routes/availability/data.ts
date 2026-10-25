@@ -98,7 +98,7 @@ export function timeZones(...ensure: (string | undefined)[]): string[] {
     }
   }
   const extra = ['UTC', ...ensure].filter((z): z is string => !!z && !zones!.includes(z))
-  return [...extra, ...zones]
+  return [...new Set([...extra, ...zones])]
 }
 
 export function zoneLabel(zone: string) {

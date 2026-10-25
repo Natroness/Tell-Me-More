@@ -14,13 +14,20 @@ from app.auth import CurrentUser, family_of_heirloom, require_member
 from app.config import get_settings
 from app.db import pool
 from app.jobs.queue import enqueue
-from app.models import Hotspot
+from app.models import Hotspot, ReferencePhoto
 from app.routers.stories import ResolvedSegment
 
 router = APIRouter(prefix="/api", tags=["immersive"])
 
 WorldStatus = Literal[
-    "queued", "writing_scene", "generating", "saving", "placing_spots", "ready", "failed"
+    "queued",
+    "writing_scene",
+    "finding_reference",
+    "generating",
+    "saving",
+    "placing_spots",
+    "ready",
+    "failed",
 ]
 
 
@@ -46,6 +53,13 @@ class ResolvedSpot(BaseModel):
     segments: list[ResolvedSegment]
 
 
+class ReferenceCredit(BaseModel):
+    """The real photo of the place the world was built on, and where it was published."""
+
+    title: str
+    page_url: str
+
+
 class ImmersiveWorld(BaseModel):
     id: UUID
     heirloom_id: UUID
@@ -58,6 +72,7 @@ class ImmersiveWorld(BaseModel):
     assets: dict[str, str]
     semantics: dict[str, float | None]
     spots: list[ResolvedSpot]
+    reference: ReferenceCredit | None = None
 
 
 def _enabled() -> None:
@@ -247,6 +262,7 @@ async def _resolve(conn: asyncpg.Connection, w: asyncpg.Record) -> ImmersiveWorl
     }
     assets: dict[str, Any] = w["assets"] or {}
     narrator = w["narrator"]
+    ref = ReferencePhoto(**w["reference"]) if w["reference"] else None
     return ImmersiveWorld(
         id=w["id"],
         heirloom_id=w["heirloom_id"],
@@ -268,12 +284,13 @@ async def _resolve(conn: asyncpg.Connection, w: asyncpg.Record) -> ImmersiveWorl
             )
             for s in spots
         ],
+        reference=ReferenceCredit(title=ref.title, page_url=ref.page_url) if ref else None,
     )
 
 
 _WORLD = f"""
 select w.id, w.family_id, w.heirloom_id, w.story_id, {_STATUS} as status,
-       coalesce(w.error, j.error) as error, w.assets, w.semantics, w.hotspots,
+       coalesce(w.error, j.error) as error, w.assets, w.semantics, w.hotspots, w.reference,
        (select p.display_name from interview i join person p on p.id = i.narrator_id
          where i.heirloom_id = w.heirloom_id order by i.created_at limit 1) as narrator
 from immersive_world w

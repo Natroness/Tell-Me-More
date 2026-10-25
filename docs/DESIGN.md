@@ -471,6 +471,18 @@ Explicit Storytime requests queue `storytime_script` followed by `storytime_rend
 `SLOW_KINDS` alongside Immersive, using the existing separate slow lane. Only one video encode
 runs at a time, with two encoder threads; model and storage calls hold no database connection.
 
+Storytime targets 30–75 seconds: 4–6 context-based scenes, 60–90 narration words (95-word
+validation ceiling), one complete original voice excerpt (prefer 8–12 seconds, allow up to
+20 seconds when source segment boundaries require it), and two-second
+opening/closing cards. Short memories remain short; no padding or speech speedup. Visuals (up
+to three) and narration (up to two) are prepared concurrently, repeated family photos share
+one local/uploaded asset, and retries require content/provider fingerprints. TTS passes only
+the narration as text, with delivery in Gemini `speech_metadata` and `store=false`. Pixabay
+subject tags rank/filter results, otherwise scene-grounded art is generated. FFmpeg decodes
+and scales each still once, emits 720p/24fps through zoompan, and normalizes frame rate after
+each crossfade. Captions use measured speech duration; the original-voice badge stays above
+the picture. `FFMPEG_BINARY`/`FFPROBE_BINARY` support explicit worker executable paths.
+
 Each stage is a pure-ish function `(inputs from DB) → rows to write`, run as a `job`. Re-running a stage replaces its own output rows, so retries converge to the same state.
 
 | # | Job kind | Trigger | Input | Output | Provider |

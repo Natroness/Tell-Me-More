@@ -7,6 +7,8 @@ import textwrap
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.config import get_settings
+
 
 @dataclass(frozen=True)
 class Clip:
@@ -16,6 +18,7 @@ class Clip:
     text: str = ""
     motion: str = "zoom_in"
     voice: bool = False
+    audio_seconds: float | None = None
 
 
 @dataclass(frozen=True)
@@ -26,8 +29,8 @@ class RenderPlan:
     output: str
     width: int = 1280
     height: int = 720
-    fps: int = 30
-    transition: float = 0.7
+    fps: int = 24
+    transition: float = 0.5
 
     @property
     def starts(self) -> list[float]:
@@ -51,16 +54,8 @@ def build_ffmpeg_args(plan: RenderPlan) -> list[str]:
         raise ValueError("Every scene must outlast its transition")
     args = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-filter_complex_threads", "1"]
     for clip in plan.clips:
-        args += [
-            "-loop",
-            "1",
-            "-framerate",
-            str(plan.fps),
-            "-t",
-            f"{clip.seconds:.6f}",
-            "-i",
-            clip.image,
-        ]
+        # Decode/scale each still once. zoompan emits the frames for its entire scene.
+        args += ["-i", clip.image]
     count = len(plan.clips)
     audio_inputs = {}
     for i, clip in enumerate(plan.clips):
@@ -84,7 +79,8 @@ def build_ffmpeg_args(plan: RenderPlan) -> list[str]:
         filters.append(
             f"[{i}:v]scale={plan.width * 2}:{plan.height * 2}:force_original_aspect_ratio=increase,"
             f"crop={plan.width * 2}:{plan.height * 2},setsar=1,"
-            f"zoompan=z='{zoom}':x='{x}':y='ih/2-ih/zoom/2':d=1:"
+            f"zoompan=z='{zoom}':x='{x}':y='ih/2-ih/zoom/2':"
+            f"d={math.ceil(clip.seconds * plan.fps)}:"
             f"s={plan.width}x{plan.height}:fps={plan.fps},format=yuv420p,"
             f"settb=AVTB,setpts=PTS-STARTPTS[v{i}]"
         )
@@ -92,7 +88,7 @@ def build_ffmpeg_args(plan: RenderPlan) -> list[str]:
     for i in range(1, count):
         filters.append(
             f"[{video}][v{i}]xfade=transition=fade:duration={plan.transition}:"
-            f"offset={plan.starts[i]:.6f}[x{i}]"
+            f"offset={plan.starts[i]:.6f},fps={plan.fps},settb=AVTB[x{i}]"
         )
         video = f"x{i}"
     filters.append(f"[{video}]subtitles='{filter_path(plan.captions)}'[video]")
@@ -180,6 +176,11 @@ ASS_LINE_2 = (
     "0,100,0,0,1,2,1,5,65,65,40,1"
 )
 
+ASS_BADGE = (
+    "Style: Badge,Arial,26,&H00F5F5F5,&H00FFFFFF,&H00181818,&H80000000,0,0,0,0,"
+    "100,100,0,0,1,2,1,8,55,55,28,1"
+)
+
 
 def captions(plan: RenderPlan, title: str, narrator: str, credits: list[str]) -> str:
     out = [
@@ -192,6 +193,7 @@ WrapStyle: 0
 {ASS_LINE_0}
 {ASS_LINE_1}
 {ASS_LINE_2}
+{ASS_BADGE}
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"""
     ]
@@ -201,7 +203,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
 
     add(
         0,
-        4,
+        min(plan.starts[1] if len(plan.clips) > 1 else plan.duration, 4),
         ass_text(title) + r"\N\N" + ass_text(f"Narrated by AI from {narrator}'s own words"),
         "Card",
     )
@@ -209,7 +211,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
         if not clip.text:
             continue
         chunks = textwrap.wrap(ass_text(clip.text), width=85, break_long_words=False)
-        duration = clip.seconds - plan.transition - (1.2 if clip.voice else 0.8)
+        duration = (
+            clip.audio_seconds
+            if clip.audio_seconds is not None
+            else max(0.1, clip.seconds - plan.transition - (0.5 if clip.voice else 0.3))
+        )
         total = max(1, sum(len(t) for t in chunks))
         cursor = plan.starts[i]
         for chunk in chunks:
@@ -220,9 +226,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
         if clip.voice:
             add(
                 plan.starts[i],
-                plan.starts[i] + duration,
+                plan.starts[i] + min(3, duration),
                 ass_text(f"{narrator}, in their own words"),
-                "Card",
+                "Badge",
             )
     end_text = ass_text(f"Told by {narrator}")
     if credits:
@@ -232,8 +238,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
 
 
 async def execute(args: list[str], *, seconds_limit: float = 600) -> bytes:
+    # Explicit paths avoid uv/service PATH differences and Homebrew's keg-only libass build.
+    settings = get_settings()
+    binary = {"ffmpeg": settings.ffmpeg_binary, "ffprobe": settings.ffprobe_binary}.get(
+        args[0], args[0]
+    )
     proc = await asyncio.create_subprocess_exec(
-        *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        binary, *args[1:], stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
     )
     try:
         out, err = await asyncio.wait_for(proc.communicate(), seconds_limit)

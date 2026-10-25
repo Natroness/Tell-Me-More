@@ -9,6 +9,7 @@ type Status = NonNullable<Photo['world']>['status']
 const BUILDING: Partial<Record<Status, string>> = {
   queued: 'Getting ready…',
   writing_scene: 'Writing the scene…',
+  finding_reference: 'Finding photos of the place…',
   generating: 'Building the world (about 5 min)…',
   saving: 'Almost ready…',
   placing_spots: 'Almost ready…',

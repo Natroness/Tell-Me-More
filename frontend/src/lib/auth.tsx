@@ -1,5 +1,6 @@
 import type { Session } from '@supabase/supabase-js'
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { supabase, supabaseConfigured } from '@/lib/supabase'
 
 type AuthValue = {
@@ -11,6 +12,8 @@ type AuthValue = {
 const AuthCtx = createContext<AuthValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const qc = useQueryClient()
+  const account = useRef<string | null | undefined>(undefined)
   const [session, setSession] = useState<Session | null | undefined>(
     supabaseConfigured ? undefined : null,
   )
@@ -18,22 +21,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!supabaseConfigured) return
     let ignore = false
+    let receivedEvent = false
+    function adopt(next: Session | null) {
+      if (ignore) return
+      const nextAccount = next?.user.id ?? null
+      if (account.current !== undefined && account.current !== nextAccount) qc.clear()
+      account.current = nextAccount
+      setSession(next)
+    }
     supabase.auth
       .getSession()
       .then(({ data }) => {
-        if (!ignore) setSession(data.session)
+        if (!receivedEvent) adopt(data.session)
       })
       .catch(() => {
-        if (!ignore) setSession(null)
+        if (!receivedEvent) adopt(null)
       })
     const { data } = supabase.auth.onAuthStateChange((_event, next) => {
-      if (!ignore) setSession(next)
+      receivedEvent = true
+      adopt(next)
     })
     return () => {
       ignore = true
       data.subscription.unsubscribe()
     }
-  }, [])
+  }, [qc])
 
   const signOut = useCallback(async () => {
     if (supabaseConfigured) {

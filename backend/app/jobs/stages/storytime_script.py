@@ -6,6 +6,7 @@ from uuid import UUID
 from pydantic import ValidationError
 
 from app import providers
+from app.config import get_settings
 from app.db import pool
 from app.jobs.queue import enqueue
 from app.models import Storyboard
@@ -58,17 +59,31 @@ async def run(attempt_id: UUID) -> None:
             "story": dict(story),
             "segments": [dict(s) for s in segments],
             "facts": [dict(f) for f in facts],
-            "photos": list(photo_ids),
+            "photos": [
+                {
+                    "id": p["id"],
+                    "observations": [
+                        f["text"] for f in facts if str(f["source"].get("media_id")) == str(p["id"])
+                    ],
+                }
+                for p in photos
+            ],
             "context_cards": [dict(c) for c in cards],
             "memory_notes": [dict(n) for n in notes],
             "people": [dict(p) for p in people],
         }
         messages = [{"role": "user", "content": json.dumps(materials, default=str)}]
         board = None
+        settings = get_settings()
         for _attempt in range(2):
             try:
                 draft = await providers.get_providers().llm.json(
-                    system=prompt("storytime_script"),
+                    system=prompt("storytime_script")
+                    + (
+                        f"\nConfigured duration target: {settings.storytime_min_seconds:g}–"
+                        f"{settings.storytime_max_seconds:g} seconds. "
+                        "Short memories may be briefer."
+                    ),
                     messages=messages,
                     schema=Storyboard,
                 )

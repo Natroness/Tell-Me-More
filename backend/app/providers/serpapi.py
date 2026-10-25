@@ -1,12 +1,13 @@
 import hashlib
 import json
 from typing import Any, Literal
+from urllib.parse import urlencode
 
 import httpx
 
 from app.config import Settings
 from app.db import pool
-from app.providers.base import LensMatch, SerpResult
+from app.providers.base import ImageResult, LensMatch, SerpResult
 
 _URL = "https://serpapi.com/search.json"
 
@@ -19,7 +20,7 @@ class SerpApi:
         self._cache = cache
 
     async def _fetch(self, params: dict[str, str]) -> dict[str, Any]:
-        async with httpx.AsyncClient(timeout=30) as http:
+        async with httpx.AsyncClient(timeout=90) as http:
             r = await http.get(_URL, params={**params, "api_key": self._key})
         return r.raise_for_status().json()
 
@@ -70,4 +71,43 @@ class SerpApi:
             )
             for r in data.get(key, [])
             if r.get("link")
+        ]
+
+    async def images(self, q: str) -> list[ImageResult]:
+        data = await self._search({"engine": "google_images", "q": q})
+        return [
+            ImageResult(
+                url=r["original"],
+                page_url=r.get("link") or r["original"],
+                title=r.get("title", ""),
+                width=r.get("original_width"),
+                via="google_images",
+            )
+            for r in data.get("images_results", [])
+            if r.get("original")
+        ]
+
+    async def place_photos(self, place: str) -> list[ImageResult]:
+        found = await self._search({"engine": "google_maps", "type": "search", "q": place})
+        spot = found.get("place_results") or next(iter(found.get("local_results") or []), None)
+        if not spot or not spot.get("data_id"):
+            return []
+        params = {"engine": "google_maps_photos", "data_id": spot["data_id"]}
+        data = await self._search(params)
+        inside = next(
+            (c["id"] for c in data.get("categories", []) if c.get("title") == "Inside"), None
+        )
+        if inside:
+            data = await self._search({**params, "category_id": inside})
+        name = " ".join(filter(None, [spot.get("title"), spot.get("address")])) or place
+        page = "https://www.google.com/maps/search/?" + urlencode({"api": 1, "query": name})
+        return [
+            ImageResult(
+                url=p["image"],
+                page_url=page,
+                title=spot.get("title", place),
+                via="google_maps",
+            )
+            for p in data.get("photos", [])
+            if p.get("image") and not p.get("video")
         ]

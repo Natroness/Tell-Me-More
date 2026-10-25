@@ -121,7 +121,7 @@ function MemberStorytime({ heirloomId }: { heirloomId: string }) {
               <h2 className="font-serif text-xl">
                 {video.video_url ? 'A video for the family' : 'Make a Storytime video for the family?'}
               </h2>
-              <p className="mt-2 text-muted">A gentle retelling with pictures and their own voice. Takes a few minutes; you can leave.</p>
+              <p className="mt-2 text-muted">A short retelling with pictures and their own voice, usually 30–75 seconds. Takes a few minutes to make; you can leave.</p>
               {video.status === 'failed' && <p role="alert" className="mt-2 text-red-900">{video.error ?? 'The video could not be finished.'}</p>}
               {availability.data && (
                 <button disabled={busy} onClick={() => create.mutate()}

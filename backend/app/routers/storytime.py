@@ -53,8 +53,8 @@ def available() -> bool:
     return bool(
         s.storytime_enabled
         and s.gemini_api_key
-        and shutil.which("ffmpeg")
-        and shutil.which("ffprobe")
+        and shutil.which(s.ffmpeg_binary)
+        and shutil.which(s.ffprobe_binary)
     )
 
 

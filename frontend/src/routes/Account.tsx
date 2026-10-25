@@ -53,7 +53,7 @@ export function Account() {
   const name = profile.data?.display_name?.trim() || ''
   const email = session?.user.email ?? ''
   const relation = tree.data ? describeMe(tree.data) : null
-  const language = draftLanguage ?? profile.data?.preferred_language ?? getPreferredLanguage()
+  const language = draftLanguage ?? getPreferredLanguage()
 
   function saved(data: Profile) {
     if (session) qc.setQueryData(profileKey(session.user.id), data)

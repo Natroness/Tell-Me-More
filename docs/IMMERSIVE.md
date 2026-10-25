@@ -16,7 +16,7 @@ Read these first: `docs/DESIGN.md` (§2 rules, §4 data model, §5.1 pipeline, �
 4. **The 3D viewer is lazy-loaded.** `three` and the splat renderer must not enter the main JS bundle. Capture and Interview load times stay the same (§8.4).
 5. **Opt-in only.** Nothing creates a world automatically. No stage enqueues `immersive_world`. Only the explicit API call does.
 6. **The AI never speaks as the relative** (DESIGN.md §2). Spots in the world play the narrator's **original audio**. No TTS of her words, no voice cloning.
-7. **Provenance.** Every world is labeled "Imagined from {narrator}'s words, not a photograph". Each spot links to the `fact` ids and `segment` ids it came from. The scene prompt may only use details from `fact` rows of kind `memory` or `observation` for this heirloom.
+7. **Provenance.** Every world is labeled "Imagined from {narrator}'s words, not a photograph". A world built on a photo found on the web (§5.6) also credits that photo's page. Each spot links to the `fact` ids and `segment` ids it came from. The scene prompt may only use details from `fact` rows of kind `memory` or `observation` for this heirloom.
 8. **Cost and rate safety.** Generate at most one world per source photo (unique constraint), cap worlds per family per day, enforce a feature flag, and back off on HTTP 429.
 
 ---
@@ -40,7 +40,7 @@ World API facts (docs.worldlabs.ai, checked 2026-10-25):
   - `marble-1.1`: 1,580 credits ≈ $1.26 per text or image world.
   - `marble-1.0-draft`: 230 credits ≈ $0.18. **Use the draft model in dev and tests that hit the live API.**
 - **Rate limits:** about 3 starts per minute and 60 per hour per account. A 429 means the request was not accepted; honor `Retry-After`.
-- **Input quality:** Marble is strong on *spaces* (rooms, courtyards, streets) and weak on close-ups and people. Never send a close-up of the object as the image prompt (§5.2).
+- **Input quality:** Marble is strong on *spaces* (rooms, courtyards, streets) and weak on close-ups and people. Never send a close-up of the object as the image prompt (§5.2). For a close-up, look for a real photo of the place instead (§5.6). One wide photo of the space beats any text prompt: tested 2026-10-25 on a Walmart earbuds story, where text alone gave a grey warehouse with a giant melted case and one aisle photo gave a recognizable store, even on the draft model.
 
 ---
 
@@ -72,8 +72,10 @@ create table immersive_world (
   requested_by uuid not null,                       -- auth user id
   requested_by_person uuid references person(id) on delete set null,
   status text not null default 'queued' check (status in
-    ('queued', 'writing_scene', 'generating', 'saving', 'placing_spots', 'ready', 'failed')),
-  input_mode text check (input_mode in ('image', 'text')),
+    ('queued', 'writing_scene', 'finding_reference', 'generating', 'saving', 'placing_spots',
+     'ready', 'failed')),
+  input_mode text check (input_mode in ('image', 'reference', 'text')),  -- 'reference': §5.6
+  reference jsonb,     -- ReferencePhoto (§5.6) when input_mode = 'reference', else null
   scene_prompt text,
   used_fact_ids uuid[] not null default '{}',
   provider text not null default 'worldlabs',
@@ -194,10 +196,13 @@ class WorldGen(Protocol):
       scene_prompt: str = Field(max_length=900)   # environment, materials, light, era; no people as main subject
       used_fact_ids: list[UUID] = Field(min_length=1)
       hotspots: list[HotspotPlan] = Field(min_length=1, max_length=6)  # label, fact_ids, segment_ids
+      place_query: str | None   # Google Images search for this kind of place (§5.6)
+      place_name: str | None    # one specific place Google Maps can find, or null
   ```
   - Use only listed facts and invent nothing about the family.
-  - Describe the *place* where the remembered moment happened; the heirloom may appear in it as a small object.
+  - Describe the *place* where the remembered moment happened. The heirloom may appear as one small object named in a few words, never with its wear or marks: detail on the object makes Marble blow it up to fill the scene.
   - No text or signage, and no identifiable faces.
+- `immersive_reference.md`: the input is the scene prompt plus numbered thumbnails of web photos. It returns the usable ones, best first (§5.6).
 - `immersive_spots.md`: the input is the generated pano, downscaled to about 2048 px wide, plus the spot labels. It returns `u,v` for each label it can see, or null.
 
 ### 5.4 Stage (`app/jobs/stages/immersive_world.py`)
@@ -209,9 +214,10 @@ class WorldGen(Protocol):
    - Download the photo and call `providers.vision.json(..., schema=SceneSpec, images=[blob])` with the default effort. This lane isn't latency-critical, and the default effort writes better prompts.
    - Validate that every `used_fact_ids` and `hotspots[*].fact_ids` and `segment_ids` belongs to this heirloom, and drop anything that doesn't.
    - If nothing valid remains, set `failed` with error "not enough story details yet".
-   - Save `scene_prompt`, `input_mode`, `used_fact_ids`, and the planned spots (no u,v yet).
+   - If `input_mode` is "text" and the scene has a `place_query`, set `finding_reference` and look for a real photo of the place (§5.6).
+   - Save `scene_prompt`, `input_mode`, `reference`, `used_fact_ids`, and the planned spots (no u,v yet) in one write, so a job that dies mid-search writes the scene again rather than leaving half of it.
 3. **generating:**
-   - If `provider_operation_id` is null, call `world.start(...)` and **commit `provider_operation_id` immediately**.
+   - If `provider_operation_id` is null, call `world.start(...)` with the family photo (`image`), our copy of the reference (`reference`), or no image (`text`), and **commit `provider_operation_id` immediately**.
    - Then poll every `immersive_poll_seconds`, without holding a DB connection, until done or `immersive_timeout_seconds`.
    - On `RateLimited`, sleep `retry_after` with jitter and retry. On an expired operation or a provider error, clear `provider_operation_id` and fail with the error, so a user retry starts fresh.
 4. **saving:** download `spz_100k`, `spz_500k`, `pano` and `thumbnail` (plus `collider` if present) and upload them to storage at `world_path`. Save `assets` and `semantics`. **Do not store World Labs URLs as the source of truth; they may expire** (see §10).
@@ -233,6 +239,18 @@ All routes return 404 when `immersive_enabled` is false.
 
 Also add to the `Story` response in `stories.py`: `photos: dict[UUID, str]`, signed URLs for each photo block's `media_id` and the heirloom cover. Add it as a new field and leave the existing fields untouched. Run `make types` afterwards.
 
+### 5.6 Reference photos (`app/world_reference.py`)
+
+A close-up of the object can't show Marble the place, so for a `text` scene we look for a real photo of it.
+
+1. Search `search.images(place_query)` (SerpApi `google_images`). When the scene names a specific place, also search `search.place_photos(place_name)` (SerpApi `google_maps`, then `google_maps_photos` in the "Inside" category).
+2. Shortlist up to 8: the named place's own photos first, then image results at least 1024 px wide.
+3. Download each full-size file once. Keep those that are a JPEG, PNG, or WebP under 8 MB, up to 16 MB in all.
+4. Ask vision (`immersive_reference.md`) which are wide, eye-level views of the space, best first. It sees the same full-size files World Labs would get, since a thumbnail hides watermarks. Upload the best to `world_path(..., "reference", ext)` and save a `ReferencePhoto` (path, mime, source URL, page URL, title, `via`) as `reference`, with `input_mode = 'reference'`.
+5. Nothing usable, or any error, leaves the world as `text`. This step never fails a world.
+
+One photo, not `multi-image`: web photos of different places don't stitch into one space. Marble copies big lettering in the photo (floor stickers, banners) as garbled text. Filtering it out doesn't work for stores, where most photos have signs and the ones without are watermarked stock (tested 2026-10-25, 5 of 7 Walmart aisle photos had big lettering). The viewer credits the photo's page under the label. Search results are cached in `serp_cache`.
+
 ---
 
 ## 6. Frontend
@@ -242,7 +260,7 @@ Also add to the `Story` response in `stories.py`: `photos: dict[UUID, str]`, sig
 - Implement the `'photo'` block, currently a TODO. Show the image from `story.photos[media_id]` with its caption sentence; use the existing `renderSentence`, so captions keep provenance chips. Also render the cover photo at the top.
 - Add `components/immersive/ImmersiveButton.tsx`, overlaid on each photo for signed-in members:
   - **no world:** "Create immersive experience", which opens a confirm sheet with the copy from §2.3 and the button **Create**.
-  - **queued, writing_scene, generating, saving, placing_spots:** a progress chip with friendly text and an elapsed timer. Subscribe with `useLiveQuery('immersive_world', \`heirloom_id=eq.${id}\`, key)`; add `'immersive_world'` to the `Table` union in `lib/realtime.ts`.
+  - **queued, writing_scene, finding_reference, generating, saving, placing_spots:** a progress chip with friendly text and an elapsed timer. Subscribe with `useLiveQuery('immersive_world', \`heirloom_id=eq.${id}\`, key)`; add `'immersive_world'` to the `Table` union in `lib/realtime.ts`.
   - **ready:** "Walk through", linking to `/w/:worldId`, or `/s/:heirloomId/w/:worldId` on the public page.
   - **failed:** "Couldn't build this one", with Retry, which POSTs again.
 - `PublicStory.tsx` shows **Walk through** only for ready worlds and never shows Create.
@@ -281,6 +299,7 @@ Also add to the `Story` response in `stories.py`: `photos: dict[UUID, str]`, sig
   - **Stage happy path:** the fakes return a `SceneSpec`, an operation id and then assets, plus spot positions. The row ends `ready`, with storage paths under `{family_id}/`.
   - **Resume:** the row already has `provider_operation_id`, so `start()` is **not** called again.
   - **Validation:** a `SceneSpec` citing a fact id from another heirloom gets that id dropped. If nothing valid is left, the world fails cleanly.
+  - **Reference photo:** a close-up with a `place_query` is built on the picked web photo, the named place's Maps photos come first, a pick that won't download falls to the next, and nothing usable or a failed search still builds from text.
   - **Spot failure:** an exception in placement still ends `ready`, with spots that have no `u,v`.
   - **Rate limit:** `RateLimited` from `start()` makes the stage back off and retry (patch sleep), without failing the job.
   - **Public GET:** a wrong `k` returns 404, and a non-ready world returns 404.

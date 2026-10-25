@@ -17,11 +17,11 @@ from uuid import UUID
 import asyncpg
 import httpx
 
-from app import providers, storage
+from app import providers, storage, world_reference
 from app.config import get_settings
 from app.db import pool
 from app.jobs.stages.common import sniff_image_mime
-from app.models import Hotspot, SceneSpec, SpotPositions
+from app.models import Hotspot, ReferencePhoto, SceneSpec, SpotPositions
 from app.prompts import prompt
 from app.providers.base import Blob, RateLimited, WorldAssets
 
@@ -48,7 +48,7 @@ async def _load(conn: asyncpg.Connection, world_id: UUID) -> dict[str, Any] | No
     row = await conn.fetchrow(
         """
         select w.id, w.family_id, w.heirloom_id, w.status, w.scene_prompt, w.input_mode,
-               w.provider_operation_id, w.assets, w.hotspots,
+               w.provider_operation_id, w.assets, w.hotspots, w.reference,
                m.storage_path as photo_path, m.mime as photo_mime,
                coalesce(h.title, h.category, 'a family heirloom') as object_name,
                (select p.display_name from interview i join person p on p.id = i.narrator_id
@@ -86,6 +86,19 @@ async def _photo(w: dict[str, Any]) -> Blob:
     return Blob(data=await storage.download("photos", w["photo_path"]), mime=w["photo_mime"])
 
 
+async def _source_image(w: dict[str, Any]) -> Blob | None:
+    """What World Labs builds from besides the text: the family's photo when it shows the place,
+    a real photo of the place found on the web, or nothing."""
+    match w["input_mode"]:
+        case "image":
+            return await _photo(w)
+        case "reference":
+            ref = ReferencePhoto(**w["reference"])
+            return Blob(data=await storage.download("generated", ref.path), mime=ref.mime)
+        case _:
+            return None
+
+
 async def _write_scene(w: dict[str, Any]) -> None:
     await _set(w["id"], status="writing_scene")
     async with pool().acquire() as conn:
@@ -114,14 +127,48 @@ async def _write_scene(w: dict[str, Any]) -> None:
     if not used:
         raise ValueError("not enough story details yet")
     spots = [s.model_dump(mode="json") for s in _spots(spec, by_id)]
-    await _set(
-        w["id"],
-        scene_prompt=spec.scene_prompt,
-        input_mode=spec.input_mode,
-        used_fact_ids=used,
-        hotspots=spots,
+    reference = await _find_reference(w, spec) if spec.input_mode == "text" else None
+    # Saved together, so a job that dies mid-search simply writes the scene again.
+    scene = {
+        "scene_prompt": spec.scene_prompt,
+        "input_mode": "reference" if reference else spec.input_mode,
+        "hotspots": spots,
+        "reference": reference.model_dump(mode="json") if reference else None,
+    }
+    await _set(w["id"], used_fact_ids=used, **scene)
+    w.update(scene)
+
+
+async def _find_reference(w: dict[str, Any], spec: SceneSpec) -> ReferencePhoto | None:
+    """A real photo of the place for a close-up's world. Finding none, or failing to search,
+    leaves the world to text, so this never fails it."""
+    if not spec.place_query:
+        return None
+    await _set(w["id"], status="finding_reference")
+    try:
+        found = await world_reference.find(
+            place_query=spec.place_query,
+            place_name=spec.place_name,
+            scene_prompt=spec.scene_prompt,
+        )
+        if found is None:
+            return None
+        result, image = found
+        path = storage.world_path(
+            w["family_id"], w["heirloom_id"], w["id"], "reference", image.mime.split("/")[-1]
+        )
+        await storage.upload("generated", path, image.data, image.mime)
+    except Exception:
+        log.warning("finding a reference photo for world %s failed", w["id"], exc_info=True)
+        return None
+    return ReferencePhoto(
+        path=path,
+        mime=image.mime,
+        url=result.url,
+        page_url=result.page_url,
+        title=result.title,
+        via=result.via,
     )
-    w.update(scene_prompt=spec.scene_prompt, input_mode=spec.input_mode, hotspots=spots)
 
 
 def _spots(spec: SceneSpec, facts: dict[UUID, asyncpg.Record]) -> list[Hotspot]:
@@ -161,7 +208,7 @@ async def _generate(w: dict[str, Any]) -> WorldAssets:
     op_id = w["provider_operation_id"]
     await _set(w["id"], status="generating", model=s.worldlabs_model)
     if op_id is None:
-        image = await _photo(w) if w["input_mode"] == "image" else None
+        image = await _source_image(w)
         while op_id is None:
             try:
                 op_id = await world.start(

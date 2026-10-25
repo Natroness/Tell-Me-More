@@ -28,6 +28,8 @@ dist-ssr/
 *.tsbuildinfo
 # Temporary spec written by `make types`
 frontend/openapi.json
+frontend/test-results/
+frontend/playwright-report/
 
 # Supabase CLI local state (local stack, linked project, branches)
 supabase/.temp/

@@ -65,6 +65,7 @@ class Pixabay:
                 photographer=h["user"],
                 page_url=h["pageURL"],
                 asset_id=str(h["id"]),
+                tags=h.get("tags", ""),
             )
             for h in data.get("hits", [])
             if h.get("largeImageURL")

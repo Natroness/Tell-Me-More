@@ -18,12 +18,21 @@ export async function startRecording(onPcm?: (pcm: ArrayBuffer) => void): Promis
     audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
   })
   const ctx = new AudioContext({ sampleRate: SAMPLE_RATE })
-  await ctx.audioWorklet.addModule('/worklets/pcm-capture.js')
+  try {
+    await ctx.audioWorklet.addModule('/worklets/pcm-capture.js')
+  } catch (error) {
+    stream.getTracks().forEach((track) => track.stop())
+    await ctx.close()
+    throw error
+  }
   const source = ctx.createMediaStreamSource(stream)
   const node = new AudioWorkletNode(ctx, 'pcm-capture')
   const chunks: Float32Array[] = []
   let lastLevel = 0
+  let paused = false
+  let stopped: Promise<Blob> | undefined
   node.port.onmessage = (e: MessageEvent<Float32Array>) => {
+    if (paused || stopped) return
     chunks.push(e.data)
     onPcm?.(toInt16(e.data).buffer as ArrayBuffer)
     lastLevel = Math.sqrt(e.data.reduce((s, v) => s + v * v, 0) / e.data.length)
@@ -33,17 +42,21 @@ export async function startRecording(onPcm?: (pcm: ArrayBuffer) => void): Promis
   return {
     level: () => lastLevel,
     async pause() {
+      paused = true
       lastLevel = 0
       await ctx.suspend()
     },
-    resume: () => ctx.resume(),
-    async stop() {
+    async resume() {
+      await ctx.resume()
+      paused = false
+    },
+    stop: () => stopped ??= (async () => {
       source.disconnect()
       node.disconnect()
       stream.getTracks().forEach((t) => t.stop())
       await ctx.close()
       return encodeWav(chunks, SAMPLE_RATE)
-    },
+    })(),
   }
 }
 

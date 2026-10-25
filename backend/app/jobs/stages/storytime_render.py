@@ -1,6 +1,8 @@
 """Resumable English slideshow generation. Never holds a DB connection across external work."""
 
 import asyncio
+import hashlib
+import json
 import logging
 import tempfile
 from pathlib import Path
@@ -15,10 +17,15 @@ from app.jobs.stages.common import sniff_image_mime
 from app.models import NarrationScene, Storyboard
 from app.storytime.common import Superseded, current, load_story, update
 from app.storytime.rendering import Clip, RenderPlan, build_ffmpeg_args, captions, duration, execute
+from app.storytime.visuals import relevant_stock
 
 log = logging.getLogger(__name__)
 ENCODER = asyncio.Semaphore(1)
 MUSIC = Path(__file__).parents[2] / "assets" / "music"
+
+
+def fingerprint(value) -> str:
+    return hashlib.sha256(json.dumps(value, sort_keys=True, default=str).encode()).hexdigest()
 
 
 async def fetch_stock(url: str) -> bytes:
@@ -81,75 +88,117 @@ async def run(attempt_id: UUID) -> None:
             raise ValueError("The source story is no longer available")
         narrator = story["narrator_name"] or "the storyteller"
         assets = dict(row["assets"])
-        semaphore = asyncio.Semaphore(3)
+        image_slots, speech_slots = asyncio.Semaphore(3), asyncio.Semaphore(2)
+        provider = providers.get_providers()
         await update(attempt_id, status="gathering")
+        with tempfile.TemporaryDirectory(prefix="storytime-") as temp:
+            work = Path(temp)
+            visual_tasks = {}
 
-        async def visual(index, scene):
-            name = f"visual_{index}"
-            if assets.get(name, {}).get("saved"):
-                return
-            async with semaphore:
-                if await current(attempt_id) is None:
-                    raise Superseded()
-                v = scene.visual
-                credit = None
-                source = v.source
-                if v.source == "family_photo" and v.media_id in photos:
-                    data = await storage.download("photos", photos[v.media_id])
-                else:
-                    data = None
+            def scene_text(scene):
+                if isinstance(scene, NarrationScene):
+                    return scene.narration
+                return " ".join(segments[s]["text"] for s in scene.segment_ids)
+
+            async def visual(index, scene, key):
+                name = f"visual_{index}"
+                image_path = work / f"image-{index}"
+                cached = assets.get(name, {})
+                if cached.get("saved") and cached.get("fingerprint") == key:
+                    image_path.write_bytes(await storage.download("generated", cached["path"]))
+                    return cached, image_path
+                async with image_slots:
+                    if await current(attempt_id) is None:
+                        raise Superseded()
+                    v = scene.visual
+                    credit, data, source = None, None, v.source
+                    if v.source == "family_photo" and v.media_id in photos:
+                        data = await storage.download("photos", photos[v.media_id])
                     if v.source == "stock":
                         try:
-                            matches = await providers.get_providers().stock.search(
-                                v.stock_query or "family keepsake"
+                            photo = relevant_stock(
+                                await provider.stock.search(v.stock_query or ""),
+                                v.stock_query or "",
                             )
-                            if matches:
-                                photo = matches[0]
+                            if photo:
                                 data = await fetch_stock(photo.url)
-                                credit = photo.model_dump(exclude={"url", "width", "height"})
+                                credit = photo.model_dump(
+                                    exclude={"url", "width", "height", "tags"}
+                                )
                         except Exception:
                             log.info("Stock unavailable; using an illustration")
                     if data is None:
                         source = "generated"
-                        prompt = v.prompt or v.stock_query or "A treasured family object"
-                        data = await providers.get_providers().image.generate(
+                        prompt = v.prompt or (
+                            f"Illustrate this memory from {board.title}: {scene_text(scene)}. "
+                            f"Visual subject: {v.stock_query or board.title}"
+                        )
+                        data = await provider.image.generate(
                             prompt + ". Painterly illustration, soft light, muted earthy palette. "
                             "No recognizable real family faces, no text or letters."
                         )
-                assets[name] = await save_asset(
-                    row, name, data, sniff_image_mime(data), credit=credit, source=source
-                )
+                    image_path.write_bytes(data)
+                    asset = await save_asset(
+                        row,
+                        name,
+                        data,
+                        sniff_image_mime(data),
+                        credit=credit,
+                        source=source,
+                        fingerprint=key,
+                    )
+                    return asset, image_path
 
-        results = await asyncio.gather(
-            *(visual(i, s) for i, s in enumerate(board.scenes)), return_exceptions=True
-        )
-        for result in results:
-            if isinstance(result, BaseException):
-                raise result
-        await update(attempt_id, status="narrating")
-        with tempfile.TemporaryDirectory(prefix="storytime-") as temp:
-            work = Path(temp)
-            clips = []
-            for index, scene in enumerate(board.scenes):
+            async def shared_visual(index, scene):
+                v = scene.visual
+                identity = (
+                    {"photo": v.media_id, "path": photos.get(v.media_id)}
+                    if v.source == "family_photo" and v.media_id in photos
+                    else {
+                        "visual": v.model_dump(exclude={"motion"}),
+                        "text": None if v.prompt else scene_text(scene),
+                    }
+                )
+                key = fingerprint({"v": 2, **identity})
+                if key not in visual_tasks:
+                    visual_tasks[key] = asyncio.create_task(visual(index, scene, key))
+                asset, image_path = await visual_tasks[key]
+                assets[f"visual_{index}"] = asset
+                # Repeated family photos share one upload and one local file.
+                await update(attempt_id, asset={f"visual_{index}": asset})
+                return image_path
+
+            async def audio(index, scene):
                 if await current(attempt_id) is None:
                     raise Superseded()
                 name = f"audio_{index}"
                 audio_path = work / f"audio-{index}.wav"
-                if assets.get(name, {}).get("saved"):
-                    audio_path.write_bytes(
-                        await storage.download("generated", assets[name]["path"])
-                    )
+                voice = not isinstance(scene, NarrationScene)
+                selected = [segments[s] for s in scene.segment_ids] if voice else []
+                key = fingerprint(
+                    {
+                        "voice": selected,
+                        "text": scene_text(scene),
+                        "tts": None if voice else getattr(provider.tts, "cache_key", "verbatim-v2"),
+                    }
+                )
+                cached = assets.get(name, {})
+                reusable = cached.get("saved") and cached.get("fingerprint") == key
+                if reusable:
+                    audio_path.write_bytes(await storage.download("generated", cached["path"]))
                 elif isinstance(scene, NarrationScene):
-                    blob = await providers.get_providers().tts.speak(scene.narration, language="en")
+                    async with speech_slots:
+                        if await current(attempt_id) is None:
+                            raise Superseded()
+                        blob = await provider.tts.speak(scene.narration, language="en")
                     audio_path.write_bytes(blob.data)
                 else:
-                    selected = [segments[s] for s in scene.segment_ids]
                     if (
                         any(s["narrator_id"] != story["narrator_id"] for s in selected)
                         or len({s["turn_id"] for s in selected}) != 1
                     ):
                         raise ValueError("Original voice clip is no longer valid")
-                    source_path = work / "source.wav"
+                    source_path = work / f"source-{index}.wav"
                     source_path.write_bytes(
                         await storage.download("audio", selected[0]["storage_path"])
                     )
@@ -176,32 +225,56 @@ async def run(attempt_id: UUID) -> None:
                         ]
                     )
                 seconds = await duration(audio_path)
-                if not assets.get(name, {}).get("saved"):
+                if not reusable:
                     assets[name] = await save_asset(
-                        row, name, audio_path.read_bytes(), "audio/wav", seconds=seconds
+                        row,
+                        name,
+                        audio_path.read_bytes(),
+                        "audio/wav",
+                        seconds=seconds,
+                        fingerprint=key,
                     )
-                image_path = work / f"image-{index}"
-                image_path.write_bytes(
-                    await storage.download("generated", assets[f"visual_{index}"]["path"])
+                return audio_path, seconds
+
+            async def pictures():
+                results = await asyncio.gather(
+                    *(shared_visual(i, s) for i, s in enumerate(board.scenes)),
+                    return_exceptions=True,
                 )
+                await update(attempt_id, status="narrating")
+                return results
+
+            # Wait for all tasks even after a failure: no orphan uploads or work after temp cleanup.
+            gathered = await asyncio.gather(
+                pictures(),
+                asyncio.gather(
+                    *(audio(i, s) for i, s in enumerate(board.scenes)), return_exceptions=True
+                ),
+                return_exceptions=True,
+            )
+            for result in gathered:
+                for item in result if isinstance(result, list) else [result]:
+                    if isinstance(item, BaseException):
+                        raise item
+            images, audios = gathered
+            clips = []
+            for scene, image_path, (audio_path, seconds) in zip(
+                board.scenes, images, audios, strict=True
+            ):
                 voice = not isinstance(scene, NarrationScene)
-                text = (
-                    scene.narration
-                    if not voice
-                    else " ".join(segments[s]["text"] for s in scene.segment_ids)
-                )
                 clips.append(
                     Clip(
                         str(image_path),
                         str(audio_path),
-                        seconds + (1.2 if voice else 0.8) + 0.7,
-                        text,
+                        seconds + (0.5 if voice else 0.3) + 0.5,
+                        scene_text(scene),
                         scene.visual.motion,
                         voice,
+                        seconds,
                     )
                 )
             plan = RenderPlan(
-                [Clip(clips[0].image, None, 4.7), *clips, Clip(clips[-1].image, None, 4)],
+                [Clip(clips[0].image, None, 2.5), *clips, Clip(clips[-1].image, None, 2)],
                 str(work / "captions.ass"),
                 str(MUSIC / f"{board.mood}.wav"),
                 str(work / "video.mp4"),
@@ -209,17 +282,7 @@ async def run(attempt_id: UUID) -> None:
             s = get_settings()
             if plan.duration > s.storytime_max_seconds:
                 raise ValueError("The script is too long. Please regenerate a shorter video.")
-            if plan.duration < s.storytime_min_seconds:
-                # Short scripts cannot become a minute of silent padding.
-                extra = (s.storytime_min_seconds - plan.duration) / len(clips)
-                if extra > 3:
-                    raise ValueError(
-                        "Not enough story for a one-minute video yet. Add another memory."
-                    )
-                from dataclasses import replace
-
-                clips = [replace(c, seconds=c.seconds + extra) for c in clips]
-                plan = replace(plan, clips=[plan.clips[0], *clips, plan.clips[-1]])
+            # The minimum is a script target, never a reason to pad a short memory with silence.
             credits = [
                 a["credit"] for a in assets.values() if isinstance(a, dict) and a.get("credit")
             ]

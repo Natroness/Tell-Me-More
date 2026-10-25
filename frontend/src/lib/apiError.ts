@@ -32,4 +32,4 @@ export function friendlyAuthError(message: string): string {
 }
 
 export const missingSupabaseConfig =
-  'add VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY in frontend/.env.local.'
+  'sign-in is not available right now. please try again later.'

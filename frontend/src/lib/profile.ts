@@ -23,7 +23,7 @@ export function useProfile() {
         throw new Error('session expired. sign in again.')
       }
       if (response.status === 502 || response.status === 503 || response.status === 504) {
-        throw new Error('the server is unavailable. start the backend and try again.')
+        throw new Error('we could not reach your account. please try again in a moment.')
       }
       if (error || !data) throw new Error(formatApiError(error, 'we could not load your account.'))
       return data

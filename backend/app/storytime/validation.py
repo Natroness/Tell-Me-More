@@ -53,29 +53,42 @@ def validate(board: Storyboard, segments: dict, facts: dict, photos: set[UUID], 
                 problems.append(f"scene {index}: voice segments must be consecutive in one answer")
                 continue
             if chosen[-1]["end_ms"] - chosen[0]["start_ms"] > 20000:
-                problems.append(f"scene {index}: voice clip exceeds 20 seconds")
+                problems.append(f"scene {index}: choose a complete voice excerpt under 20 seconds")
                 continue
         visual = scene.visual
+        text = (
+            scene.narration
+            if isinstance(scene, NarrationScene)
+            else " ".join(segments[s]["text"] for s in scene.segment_ids)
+        )
+        fallback = visual.prompt or f"Illustrate this cited family memory: {text}"
         if visual.source == "family_photo" and visual.media_id not in photos:
             problems.append(f"scene {index}: unknown family photo replaced with illustration")
-            scene.visual = SceneVisual(source="generated", prompt="The treasured family object")
+            scene.visual = SceneVisual(source="generated", prompt=fallback)
         elif visual.source == "generated" and not visual.prompt:
-            visual.prompt = "The treasured family object, quietly remembered"
+            visual.prompt = fallback
         elif visual.source == "stock" and not visual.stock_query:
             problems.append(f"scene {index}: stock image needs a search query")
-            scene.visual = SceneVisual(
-                source="generated", prompt="A quiet memory of the family object"
-            )
+            scene.visual = SceneVisual(source="generated", prompt=fallback)
         scenes.append(scene)
     # At least half the imagery comes from the family or imagined illustrations.
     stocks = [s for s in scenes if s.visual.source == "stock"]
     for scene in stocks[len(scenes) // 2 :]:
-        scene.visual = SceneVisual(source="generated", prompt=scene.visual.stock_query)
+        scene.visual = SceneVisual(
+            source="generated", prompt=scene.visual.prompt or scene.visual.stock_query
+        )
     if scenes and photos:
-        photo_id = sorted(photos, key=str)[0]
-        scenes[0].visual = SceneVisual(source="family_photo", media_id=photo_id)
-        scenes[-1].visual = SceneVisual(source="family_photo", media_id=photo_id, motion="zoom_out")
+        # Preserve the script's observation-based choice rather than replacing it by UUID order.
+        fallback = sorted(photos, key=str)[0]
+        for scene in (scenes[0], scenes[-1]):
+            if scene.visual.source != "family_photo":
+                scene.visual = SceneVisual(source="family_photo", media_id=fallback)
+        scenes[-1].visual.motion = "zoom_out"
     voices = sum(isinstance(s, VoiceScene) for s in scenes)
+    words = sum(len(s.narration.split()) for s in scenes if isinstance(s, NarrationScene))
+    if len(scenes) > 6 or words > 95 or voices > 1:
+        problems.append("shorten to at most six scenes, 95 narration words and one voice excerpt")
+        return None, problems
     if (
         len(scenes) < 3
         or not 1 <= voices <= 3

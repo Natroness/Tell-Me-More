@@ -84,7 +84,7 @@ My engineering estimate, assuming working credentials and a usable saved story: 
 ## Implementation details to resolve before building
 
 - **Original voice timing:** `app/segments.py` sometimes divides a speech turn into sentences proportionally by text length. A 150 ms pad cannot guarantee clean boundaries. Initially prefer complete short answer turns or validate/refine cuts in the slow lane. Add English forced alignment later if needed.
-- **Duration:** The storyboard schema alone does not enforce 60–150 seconds. Budget narration length and original clips, then validate measured duration. Shorten the script or remove optional scenes rather than arbitrarily speeding up family speech.
+- **Duration:** Target 30–75 seconds (halved from the original brief). Budget narration length and original clips, then validate measured duration. Shorten the script or remove optional scenes rather than speeding up family speech. Short memories stay short without silent padding.
 - **Provenance:** Checking that citation IDs exist is necessary but does not prove every claim is supported. Validate narration sentence by sentence and keep a source map; label generated/historical-context visuals appropriately.
 - **Regeneration and caps:** A single upserted row per heirloom cannot reliably count daily render requests. Use durable attempt accounting and transactional enforcement. Give attempts an identity so old jobs cannot overwrite a regeneration or restore a removed video.
 - **CPU isolation:** A separate asyncio lane protects queue slots, not CPU. Start with one FFmpeg render at a time and bounded encoder threads. Measure interview latency under rendering load; move rendering to a separate worker/process allocation if needed.

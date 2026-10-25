@@ -11,6 +11,7 @@ from app import db, providers, storage
 from app.providers import Providers
 from app.providers.base import (
     Blob,
+    ImageResult,
     LensMatch,
     SerpResult,
     StockPhoto,
@@ -59,6 +60,9 @@ class FakeSearch:
     matches: list[LensMatch] = field(default_factory=list)
     results: list[SerpResult] = field(default_factory=list)
     queries: list[str] = field(default_factory=list)
+    images_found: list[ImageResult] = field(default_factory=list)
+    place_found: list[ImageResult] = field(default_factory=list)
+    places: list[str] = field(default_factory=list)
 
     async def lens(self, image_url):
         return self.matches
@@ -66,6 +70,14 @@ class FakeSearch:
     async def web(self, q, engine="google"):
         self.queries.append(q)
         return self.results
+
+    async def images(self, q):
+        self.queries.append(q)
+        return self.images_found
+
+    async def place_photos(self, place):
+        self.places.append(place)
+        return self.place_found
 
 
 @dataclass

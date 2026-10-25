@@ -2032,7 +2032,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "queued" | "writing_scene" | "generating" | "saving" | "placing_spots" | "ready" | "failed";
+            status: "queued" | "writing_scene" | "finding_reference" | "generating" | "saving" | "placing_spots" | "ready" | "failed";
             /** Error */
             error: string | null;
             /** Narrator */
@@ -2049,6 +2049,7 @@ export interface components {
             };
             /** Spots */
             spots: components["schemas"]["ResolvedSpot"][];
+            reference?: components["schemas"]["ReferenceCredit"] | null;
         };
         /** ImportantDateTimelineItem */
         ImportantDateTimelineItem: {
@@ -2570,6 +2571,16 @@ export interface components {
             question: string | null;
         };
         /**
+         * ReferenceCredit
+         * @description The real photo of the place the world was built on, and where it was published.
+         */
+        ReferenceCredit: {
+            /** Title */
+            title: string;
+            /** Page Url */
+            page_url: string;
+        };
+        /**
          * Relationship
          * @description Directed edge: `a` is the `kind` of `b` (a parent of b, a spouse of b, a sibling of b).
          */
@@ -3078,7 +3089,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "queued" | "writing_scene" | "generating" | "saving" | "placing_spots" | "ready" | "failed";
+            status: "queued" | "writing_scene" | "finding_reference" | "generating" | "saving" | "placing_spots" | "ready" | "failed";
             /**
              * Updated At
              * Format: date-time

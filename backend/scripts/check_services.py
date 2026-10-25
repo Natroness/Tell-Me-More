@@ -274,10 +274,16 @@ async def serpapi_lens() -> str:
 
 
 async def storytime_media() -> str:
-    assert shutil.which("ffmpeg") and shutil.which("ffprobe"), "Install ffmpeg and ffprobe"
-    result = await asyncio.to_thread(
-        subprocess.run, ["ffmpeg", "-hide_banner", "-filters"], capture_output=True, text=True
+    assert shutil.which(S.ffmpeg_binary) and shutil.which(S.ffprobe_binary), (
+        "Install ffmpeg/ffprobe or set FFMPEG_BINARY and FFPROBE_BINARY"
     )
+    result = await asyncio.to_thread(
+        subprocess.run,
+        [S.ffmpeg_binary, "-hide_banner", "-filters"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, "FFmpeg cannot start; check FFMPEG_BINARY and its libraries"
     assert all(
         name in result.stdout for name in ("zoompan", "xfade", "subtitles", "sidechaincompress")
     )

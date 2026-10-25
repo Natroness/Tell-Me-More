@@ -1,10 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Box, ExternalLink, Film } from 'lucide-react'
-import type { ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import { AudioPlayer, Button, Card, Chip, Disclosure, FormError, Notice, SourceTag } from '@/components/ui/chrome'
 import { api, type Schemas } from '@/lib/api'
 import { formatApiError } from '@/lib/apiError'
+import { buzz, HAPTIC } from '@/lib/haptics'
+import { useLiveQuery } from '@/lib/realtime'
 
 type VideoStatus = NonNullable<Schemas['StorytimeVideo']['status']>
 type WorldStatus = Schemas['WorldSummary']['status']
@@ -19,10 +21,18 @@ const VIDEO_WORDS: Record<VideoStatus, string> = {
   ready: 'ready',
   failed: "didn't finish",
 }
-const WORLD_STEPS: WorldStatus[] = ['queued', 'writing_scene', 'generating', 'saving', 'placing_spots']
+const WORLD_STEPS: WorldStatus[] = [
+  'queued',
+  'writing_scene',
+  'finding_reference',
+  'generating',
+  'saving',
+  'placing_spots',
+]
 const WORLD_WORDS: Record<WorldStatus, string> = {
   queued: 'waiting to start',
   writing_scene: 'imagining the scene',
+  finding_reference: 'finding photos of the place',
   generating: 'building the world',
   saving: 'saving the world',
   placing_spots: 'placing the memories',
@@ -63,6 +73,7 @@ function Progress({ step, total, label }: { step: number; total: number; label: 
 export function StorytimeSection({ heirloomId, publicKey }: { heirloomId: string; publicKey?: string }) {
   const qc = useQueryClient()
   const key = ['storytime', heirloomId, publicKey ?? null]
+  const wasWorking = useRef(false)
   const video = useQuery({
     queryKey: key,
     queryFn: async () => {
@@ -85,8 +96,15 @@ export function StorytimeSection({ heirloomId, publicKey }: { heirloomId: string
     enabled: publicKey == null && !!video.data?.can_manage,
     queryFn: async () => (await api.GET('/api/storytime/available')).data?.available ?? false,
   })
+  useLiveQuery('storytime', `heirloom_id=eq.${heirloomId}`, key)
+  useEffect(() => {
+    const status = video.data?.status
+    if (status === 'ready' && wasWorking.current) buzz(HAPTIC.start)
+    wasWorking.current = !!status && VIDEO_STEPS.includes(status)
+  }, [video.data?.status])
   const create = useMutation({
     mutationFn: async () => {
+      buzz(HAPTIC.start)
       const { data, error } = await api.POST('/api/stories/{heirloom_id}/storytime', {
         params: { path: { heirloom_id: heirloomId } },
       })
@@ -115,7 +133,8 @@ export function StorytimeSection({ heirloomId, publicKey }: { heirloomId: string
   return (
     <Section icon={<Film className="size-6" strokeWidth={2.2} aria-hidden />} title="storytime video">
       <p className="font-sans text-[1.05rem] leading-snug text-muted">
-        a narrated retelling with pictures. the original recording above is the real voice.
+        a short retelling with pictures and the storyteller's own voice, usually 30–75 seconds.
+        takes a few minutes to make; you can leave and come back.
       </p>
       {v.video_url && (
         <div className="hand-box overflow-hidden border-2 border-ink">
@@ -132,9 +151,9 @@ export function StorytimeSection({ heirloomId, publicKey }: { heirloomId: string
           label={v.video_url ? `making a new version: ${VIDEO_WORDS[status]}` : VIDEO_WORDS[status]}
         />
       )}
-      {status === 'failed' && <Notice tone="error">the last video didn't finish.</Notice>}
+      {status === 'failed' && <Notice tone="error">{v.error ?? "the last video didn't finish."}</Notice>}
       {canCreate && (
-        <Button tone="secondary" onClick={() => create.mutate()} disabled={create.isPending}>
+        <Button tone="secondary" onClick={() => create.mutate()} disabled={create.isPending || remove.isPending}>
           {create.isPending
             ? 'starting…'
             : !v.video_url && status !== 'failed'
@@ -144,8 +163,8 @@ export function StorytimeSection({ heirloomId, publicKey }: { heirloomId: string
                 : 'make a new version'}
         </Button>
       )}
-      {v.id && !working && (
-        <Button tone="secondary" onClick={() => remove.mutate()} disabled={remove.isPending}>
+      {v.id && v.can_manage && publicKey == null && (
+        <Button tone="secondary" onClick={() => remove.mutate()} disabled={remove.isPending || create.isPending}>
           {remove.isPending ? 'removing…' : 'remove video'}
         </Button>
       )}
@@ -196,10 +215,11 @@ export function ImmersiveSection({
       return res.data
     },
     refetchInterval: (q) => {
-      const s = q.state.data?.find((p) => p.world)?.world?.status
-      return s && s !== 'ready' && s !== 'failed' ? POLL_MS : false
+      return q.state.data?.some((p) => p.world && p.world.status !== 'ready' && p.world.status !== 'failed')
+        ? POLL_MS : false
     },
   })
+  useLiveQuery('immersive_world', `heirloom_id=eq.${heirloomId}`, key)
   const photo = photos.data?.find((p) => p.world?.status === 'ready') ?? photos.data?.find((p) => p.is_cover) ?? photos.data?.[0]
   const world = photo?.world
   const detail = useQuery({

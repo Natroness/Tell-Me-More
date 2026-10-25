@@ -259,6 +259,25 @@ class SceneSpec(BaseModel):
     scene_prompt: str = Field(max_length=900)
     used_fact_ids: list[UUID] = Field(min_length=1)
     hotspots: list[HotspotPlan] = Field(min_length=1, max_length=6)
+    # Searches for real photos of the place, built from the facts alone.
+    place_query: str | None = Field(None, max_length=120)  # the kind of place, for Google Images
+    place_name: str | None = Field(None, max_length=120)  # one named place, for Google Maps
+
+
+class ReferencePicks(BaseModel):
+    ranked: list[int] = Field(max_length=5)  # usable candidates, best first
+
+
+class ReferencePhoto(BaseModel):
+    """A real photo of the place, found on the web, that a world was built on instead of text
+    alone. `path` is our copy in the generated bucket; the rest credits the source."""
+
+    path: str
+    mime: str
+    url: str
+    page_url: str
+    title: str
+    via: Literal["google_images", "google_maps"]
 
 
 class SpotPosition(BaseModel):

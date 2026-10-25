@@ -48,7 +48,7 @@ class WorldLabsWorldGen:
                 headers=info.get("required_headers") or {},
             )
         r.raise_for_status()
-        return prepared["media_asset"]["id"]
+        return prepared["media_asset"]["media_asset_id"]
 
     async def start(self, *, prompt: str, image: Blob | None, display_name: str) -> str:
         if image is None:

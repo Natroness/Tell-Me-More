@@ -10,7 +10,7 @@
 ## 1. What we're building
 
 After a story exists, the storyteller can **opt in** to a "Storytime" video: a calm,
-storyboard-style slideshow, 60–150 s long, that retells the story for family and friends. A
+storyboard-style slideshow targeting 30–75 s, that retells the story for family and friends. A
 gentle AI **narrator** guides it, and it stops for short clips of **the storyteller's own recorded
 voice**. The visuals mix:
 
@@ -140,12 +140,12 @@ class SceneVisual(BaseModel):
     source: Literal["family_photo", "generated", "stock"]
     media_id: UUID | None = None          # family_photo: must be one of the given photo ids
     prompt: str | None = None             # generated: Muse Image prompt
-    stock_query: str | None = None        # stock: 2–5 words, era + place ("1960s Kathmandu street")
+    stock_query: str | None = None        # stock: 2–5 words, concrete subject first
     motion: Literal["zoom_in", "zoom_out", "pan_left", "pan_right"] = "zoom_in"
 
 class NarrationScene(BaseModel):
     type: Literal["narration"]
-    narration: str = Field(max_length=320)        # 1–3 spoken sentences, third person
+    narration: str = Field(max_length=320)        # one context, short third-person sentence
     cites: list[SegmentCite | FactCite] = Field(min_length=1)
     visual: SceneVisual
     caption: str | None = Field(None, max_length=40)   # optional on-screen year / place
@@ -168,7 +168,11 @@ Prompt rules (match the tone of the existing prompts):
 
 - Write all narration and captions in English. Use only original English recordings for voice scenes.
 - A warm, unhurried bedtime-story voice in the third person. It never says "I" for the storyteller.
-- Include 1–3 `voice` scenes at the emotional peaks, each under about 20 s of audio in total.
+- Use 4–6 context-based scenes and 60–90 total narration words (95-word validation ceiling).
+- Include one `voice` scene near the middle, preferably a complete 8–12 s excerpt. If source
+  segments are longer, allow up to 20 s and reduce surrounding narration. Never speed it up.
+- Change scenes when subject, action, place or time changes, with an image of that scene's cited content.
+- Do not repeat the original clip's content in the surrounding narration.
 - Open and close on the object itself, using a **family photo** when one exists.
 - At least half the visuals are family photos or generated images. Stock is for era and place only.
 - Generated prompts follow `cover_art.cover_prompt`: painterly, soft light, muted earthy palette.
@@ -186,25 +190,33 @@ Save `storyboard`, set `status = 'gathering'`, and enqueue `storytime_render` in
 
 ### 5.4 Stage B: `storytime_render` (`jobs/stages/storytime_render.py`)
 
-**Resumable:** read the row first and skip work already recorded in `assets`. Update `status` and
+**Resumable:** read the row first and reuse saved assets whose content/provider fingerprint matches.
+Legacy narration without a fingerprint is regenerated so spoken style prompts cannot survive retries.
+Update `status` and
 `updated_at` at each step so Realtime drives the UI.
 
-1. **gathering.** Fetch visuals concurrently (`asyncio.gather` with a semaphore of 3; Muse Image takes 9–42 s):
+1. **gathering.** Prepare visuals (up to three concurrently) and narration (up to two concurrently)
+   together. Repeated family photos share one download, upload, and local image file. Fresh assets
+   are used locally without downloading them again from Storage. Muse Image takes 9–42 s:
    - `family_photo`: `storage.download("photos", path)`.
    - `generated`: `providers.image.generate(prompt)`.
-   - `stock`: `providers.stock.search(query)`, taking the first landscape result. If there's no result
-     or an error, **fall back to `generated`** with the query as the prompt.
+   - `stock`: rank landscape results by query/subject-tag overlap; require at least half of the
+     meaningful query terms. Missing/unrelated tags or download/search failures fall back to a
+     scene-specific generated prompt, or the scene text and object title when no prompt was supplied.
    - Upload each one to `storytime_path` and record it in `assets` right away (that's what makes it resumable).
 2. **narrating.**
-   - Narration scenes: `providers.tts.speak(text, language="en")`, then upload.
+   - Narration scenes: `providers.tts.speak(text, language="en")`, then upload. Only the actual
+     narration enters the transcript; delivery instructions use separate speech metadata.
    - Voice scenes: cut the storyteller's clip from the original answer WAV (`audio` bucket,
      `segment.start_ms` to `end_ms`, padded by 150 ms) with ffmpeg.
-   - Measure every clip with `ffprobe`. Scene duration = audio + 0.8 s of rest (voice scenes get
-     1.2 s, with the caption "{name}, in their own words").
+   - Measure every clip with `ffprobe`. Scene duration = audio + 0.3 s of rest (voice scenes get
+     0.5 s). Add transition overlap separately. Captions end with measured speech; show
+     "{name}, in their own words" briefly at the top during original audio.
 3. **rendering.** Work in a temp dir with ffmpeg, run in `asyncio.create_subprocess_exec`, never blocking the loop:
-   - 1280×720, 30 fps, H.264 + AAC, `-movflags +faststart`.
-   - Per scene: scale and crop to fill, then `zoompan` for the chosen motion. Use `xfade` (about 0.7 s) between scenes.
-   - A 4 s title card (story title over the cover photo, plus the provenance line from §2.2). A 4 s end card
+   - 1280×720, 24 fps, H.264 + AAC, `-movflags +faststart`.
+   - Decode, scale and crop each still once; `zoompan` emits the scene's frames. Use 0.5 s
+     crossfades and normalize FPS after each fade for stable chained transitions.
+   - A 2 s title card (story title over the cover photo, plus the provenance line from §2.2). A 2 s end card
      ("Told by {storyteller}", then stock credits).
    - Audio: narration and voice clips laid out on the timeline, with the mood music track at about −22 dB,
      ducked under speech (`sidechaincompress`) and **muted under voice scenes**.
@@ -234,6 +246,7 @@ class StockPhoto(BaseModel):
     height: int
     photographer: str
     page_url: str
+    tags: str = ""  # Used to rank/filter relevance to the scene's stock query.
 
 class StockImages(Protocol):
     async def search(self, query: str, *, orientation: str = "landscape") -> list[StockPhoto]: ...
@@ -241,6 +254,9 @@ class StockImages(Protocol):
 
 - `TTS`:
   - `providers/gemini_tts.py` uses a fixed prebuilt narrator, English only, and returns WAV audio.
+    Gemini's [documented speech metadata](https://ai.google.dev/gemini-api/docs/speech-generation)
+    separates delivery instructions from the exact transcript. The Interactions request uses
+    [`store=false`](https://ai.google.dev/gemini-api/docs/interactions-overview#data-storage-and-retention).
   - `settings.tts_provider = "gemini"`; `settings.tts_model` and `settings.tts_voice` select the
     model and one application-wide narrator. No reference audio or voice cloning.
 - `StockImages`: `providers/pixabay.py` (`GET https://pixabay.com/api/`). Cache responses in
@@ -255,10 +271,14 @@ Config (`app/config.py`, `.env.example`), all defaulting to off or empty:
 ```python
 storytime_enabled: bool = False
 storytime_daily_limit_per_family: int = 5
+storytime_min_seconds: float = 30   # Script target; short memories are never padded.
+storytime_max_seconds: float = 75   # Enforced against measured audio timeline.
 tts_provider: Literal["gemini"] = "gemini"
 tts_model: str = "gemini-3.8-flash-tts"
 tts_voice: str = "Sulafat"
 pixabay_api_key: str = ""
+ffmpeg_binary: str = "ffmpeg"       # Optional absolute worker executable paths.
+ffprobe_binary: str = "ffprobe"
 ```
 
 ### 5.6 API: `app/routers/storytime.py` (prefix `/api`, registered in `main.py`)
@@ -267,7 +287,7 @@ When `storytime_enabled` is false, every route returns 404 except `available`.
 
 | Method | Path | Who | Behavior |
 |---|---|---|---|
-| `GET` | `/api/storytime/available` | signed in | `{available}`: the flag is on, the Gemini key exists, and `ffmpeg` / `ffprobe` are on PATH. Stock is optional. |
+| `GET` | `/api/storytime/available` | signed in | `{available}`: the flag is on, the Gemini key exists, and configured FFmpeg/ffprobe binaries exist. Stock is optional. |
 | `POST` | `/api/stories/{heirloom_id}/storytime` | storyteller or owner | Requires a published story. Over the daily cap → 429. A row that's in progress → return it (200). Otherwise upsert the row (reset status, storyboard, assets and error, set `story_id` to the latest) and `enqueue("storytime_script", ...)` in one transaction → 202 |
 | `GET` | `/api/stories/{heirloom_id}/storytime` | member | `{status, stale, video_url, poster_url, duration_ms, credits}`. Signed URLs come from `signed_download_url`; video URLs get `expires_in` of about 6 h |
 | `DELETE` | `/api/stories/{heirloom_id}/storytime` | storyteller or owner | Delete the row and its storage objects |
@@ -304,7 +324,7 @@ Use `require_member` and `family_of_heirloom` the same way `stories.py` does. Ru
   - **Render happy path with fakes:** the row reaches `ready`, every storage path starts with `{family_id}/`,
     and notifications go to the right deduplicated person ids.
   - **Resume:** existing `assets` entries are not regenerated (assert the fake image and TTS call counts).
-  - **Stock fallback:** an empty Pexels result means `image.generate` is called.
+  - **Stock fallback:** empty or unrelated Pixabay results mean `image.generate` is called.
   - **`build_ffmpeg_args`:** the scene count, xfade offsets that sum to `duration_ms`, captions referenced, and
     music muted during voice scenes.
   - **A real ffmpeg smoke test** on 3 tiny scenes, skipped if ffmpeg is missing.
@@ -316,7 +336,7 @@ Use `require_member` and `family_of_heirloom` the same way `stories.py` does. Ru
 
 - [ ] Migration applied. DESIGN.md updated: §3.4 (TTS and Pexels verification), §4.2 (table), §5.1 (two
       slow-lane stages), §5.6 (routes), and a short §5.11 "Storytime video".
-- [ ] A real interview → Create on the story page → a playable 60–150 s MP4 with narration, at least
+- [ ] A real interview → Create on the story page → a playable 30–75 s MP4 with narration, at least
       one clip of the storyteller's own voice, captions, music, a family photo, generated art and stock era images,
       in under about 5 min.
 - [ ] Every narrated line traces to a segment or fact id (inspect `storyboard`).

@@ -198,6 +198,14 @@ function Walk({ world, back }: { world: World; back: string | number }) {
 
       <header className="absolute inset-x-0 top-0 bg-ink/70 px-4 py-3 text-center text-lg backdrop-blur">
         {world.label}
+        {world.reference && (
+          <p className="text-sm opacity-80">
+            Setting based on{' '}
+            <a href={world.reference.page_url} target="_blank" rel="noreferrer" className="underline">
+              a public photo of a similar place
+            </a>
+          </p>
+        )}
       </header>
 
       <footer className="absolute inset-x-0 bottom-0 flex flex-wrap items-center justify-center gap-3 p-4 pb-8">
