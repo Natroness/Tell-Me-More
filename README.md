@@ -1,5 +1,5 @@
 <img width="1312" height="1199" alt="image" src="https://github.com/user-attachments/assets/537daf5a-ac4b-4f53-bf6f-33924a3db619" />
-# Lorebook
+# Tell Me More
 
 Photograph a family heirloom, let a relative tell its story in their own voice, and get a cited story page the whole family can explore. Built for HackTX 2026 (Meta track). Design: [docs/DESIGN.md](docs/DESIGN.md).
 
