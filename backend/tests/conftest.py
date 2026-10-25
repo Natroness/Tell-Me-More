@@ -9,7 +9,15 @@ import pytest
 
 from app import db, providers, storage
 from app.providers import Providers
-from app.providers.base import Blob, LensMatch, SerpResult, StreamedTranscript, Transcript
+from app.providers.base import (
+    Blob,
+    LensMatch,
+    SerpResult,
+    StockPhoto,
+    StreamedTranscript,
+    Transcript,
+    WorldOp,
+)
 
 if not os.environ.get("TEST_DATABASE_URL"):
     pytest.skip("run via tests/run_with_db.sh (needs TEST_DATABASE_URL)", allow_module_level=True)
@@ -96,12 +104,61 @@ class FakeImage:
 
 
 @dataclass
+class FakeTTS:
+    calls: list[str] = field(default_factory=list)
+
+    async def speak(self, text, *, language="en"):
+        assert language == "en"
+        self.calls.append(text)
+        return Blob(data=make_wav(1), mime="audio/wav")
+
+
+@dataclass
+class FakeStock:
+    results: list[StockPhoto] = field(default_factory=list)
+    queries: list[str] = field(default_factory=list)
+
+    async def search(self, query, *, orientation="landscape"):
+        self.queries.append(query)
+        return self.results
+
+
+@dataclass
+class FakeWorldGen:
+    """`start` raises the queued `start_errors` first, then returns `operation_id`. `poll` serves
+    `polls` in order and repeats the last. `fetch` returns `files[url]`."""
+
+    operation_id: str = "op-1"
+    start_errors: list[Exception] = field(default_factory=list)
+    polls: list[WorldOp] = field(default_factory=list)
+    files: dict[str, bytes] = field(default_factory=dict)
+    started: list[dict] = field(default_factory=list)
+    polled: list[str] = field(default_factory=list)
+
+    async def start(self, *, prompt, image, display_name):
+        self.started.append({"prompt": prompt, "image": image, "display_name": display_name})
+        if self.start_errors:
+            raise self.start_errors.pop(0)
+        return self.operation_id
+
+    async def poll(self, operation_id):
+        self.polled.append(operation_id)
+        return self.polls.pop(0) if len(self.polls) > 1 else self.polls[0]
+
+    async def fetch(self, url):
+        return self.files[url]
+
+
+@dataclass
 class Fakes:
     llm: FakeLLM
     asr: FakeASR
     asr_stream: FakeStreamingASR
     search: FakeSearch
     image: FakeImage
+    world: FakeWorldGen
+    tts: FakeTTS
+    stock: FakeStock
     files: dict[str, bytes]
 
 
@@ -113,6 +170,9 @@ async def fakes(monkeypatch) -> Fakes:
         asr_stream=FakeStreamingASR(),
         search=FakeSearch(),
         image=FakeImage(),
+        world=FakeWorldGen(),
+        tts=FakeTTS(),
+        stock=FakeStock(),
         files={},
     )
     monkeypatch.setattr(
@@ -126,6 +186,9 @@ async def fakes(monkeypatch) -> Fakes:
             asr_stream=f.asr_stream,
             image=f.image,
             search=f.search,
+            world=f.world,
+            tts=f.tts,
+            stock=f.stock,
         ),
     )
 
@@ -138,6 +201,11 @@ async def fakes(monkeypatch) -> Fakes:
     async def upload(bucket, path, data, mime):
         f.files[path] = data
 
+    async def remove(bucket, paths):
+        for path in paths:
+            f.files.pop(path, None)
+
+    monkeypatch.setattr(storage, "remove", remove)
     monkeypatch.setattr(storage, "download", download)
     monkeypatch.setattr(storage, "upload", upload)
     monkeypatch.setattr(storage, "signed_download_url", signed_download_url)

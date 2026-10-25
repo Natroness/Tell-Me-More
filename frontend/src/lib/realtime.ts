@@ -2,7 +2,7 @@ import { useQueryClient, type QueryKey } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { supabase } from './supabase'
 
-type Table = 'interview' | 'turn' | 'job' | 'story' | 'memory_note' | 'notification' | 'story_request' | 'heirloom' | 'media' | 'profile'
+type Table = 'interview' | 'turn' | 'job' | 'story' | 'memory_note' | 'notification' | 'story_request' | 'heirloom' | 'media' | 'profile' | 'immersive_world' | 'storytime'
 
 /**
  * Refetches `queryKey` whenever a row matching `filter` changes (DESIGN.md §5.6).

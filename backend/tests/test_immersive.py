@@ -1,0 +1,437 @@
+"""Immersive memories (docs/IMMERSIVE.md §7): asking for a world, building it, walking it."""
+
+from dataclasses import dataclass
+from uuid import UUID, uuid4
+
+import pytest
+from fastapi import HTTPException, Response
+
+from app.auth import User
+from app.config import get_settings
+from app.jobs.stages import immersive_world
+from app.models import HotspotPlan, SceneSpec, SpotPosition, SpotPositions
+from app.providers.base import RateLimited, WorldAssets, WorldOp
+from app.routers import immersive
+
+ASSETS = WorldAssets(
+    world_id="wl-world-1",
+    spz_urls={"100k": "https://wl.test/100k.spz", "500k": "https://wl.test/500k.spz"},
+    pano_url="https://wl.test/pano.png",
+    thumbnail_url="https://wl.test/thumb.jpg",
+    collider_mesh_url=None,
+    caption="a courtyard",
+    metric_scale_factor=1.5,
+    ground_plane_offset=0.3,
+)
+DONE = WorldOp(operation_id="op-1", done=True, result=ASSETS)
+WAITING = WorldOp(operation_id="op-1", done=False)
+
+
+@dataclass
+class Story:
+    memory_id: UUID
+    observation_id: UUID
+    segment_id: UUID
+
+
+@pytest.fixture(autouse=True)
+def enabled(monkeypatch):
+    s = get_settings()
+    monkeypatch.setattr(s, "immersive_enabled", True)
+    monkeypatch.setattr(s, "immersive_daily_limit_per_family", 5)
+
+    async def no_wait(seconds):
+        return None
+
+    monkeypatch.setattr(immersive_world, "_wait", no_wait)
+
+
+@pytest.fixture
+async def story(conn, seed, fakes) -> Story:
+    interview_id = await conn.fetchval(
+        "insert into interview (heirloom_id, narrator_id, interviewer_user_id) "
+        "values ($1, $2, $3) returning id",
+        seed.heirloom_id,
+        seed.narrator_id,
+        seed.user_id,
+    )
+    audio_id = await conn.fetchval(
+        "insert into media (family_id, heirloom_id, kind, storage_path, mime) "
+        "values ($1, $2, 'audio', $3, 'audio/wav') returning id",
+        seed.family_id,
+        seed.heirloom_id,
+        f"{seed.family_id}/{seed.heirloom_id}/answer.wav",
+    )
+    turn_id = await conn.fetchval(
+        "insert into turn (interview_id, idx, role, text, audio_media_id) "
+        "values ($1, 1, 'answer', 'We sat under the neem tree.', $2) returning id",
+        interview_id,
+        audio_id,
+    )
+    segment_id = await conn.fetchval(
+        "insert into segment (turn_id, start_ms, end_ms, text) "
+        "values ($1, 0, 2400, 'We sat under the neem tree.') returning id",
+        turn_id,
+    )
+    memory_id = await conn.fetchval(
+        "insert into fact (heirloom_id, kind, text, source) values ($1, 'memory', $2, $3) "
+        "returning id",
+        seed.heirloom_id,
+        "Nani sat under the neem tree in the courtyard.",
+        {"kind": "memory", "segment_ids": [str(segment_id)], "narrator_id": str(seed.narrator_id)},
+    )
+    observation_id = await conn.fetchval(
+        "insert into fact (heirloom_id, kind, text, source) values ($1, 'observation', $2, $3) "
+        "returning id",
+        seed.heirloom_id,
+        "A brass lamp with a dented base.",
+        {"kind": "observation", "media_id": str(seed.photo_id), "via": "vision"},
+    )
+    return Story(memory_id, observation_id, segment_id)
+
+
+def scene(*fact_ids, mode="text"):
+    return SceneSpec(
+        input_mode=mode,
+        scene_prompt="A sunlit courtyard with a neem tree and a brass lamp on a low wall.",
+        used_fact_ids=list(fact_ids),
+        hotspots=[HotspotPlan(label="The neem tree", fact_ids=list(fact_ids))],
+    )
+
+
+def ready_world(fakes, story):
+    fakes.llm.responses[SceneSpec] = scene(story.memory_id, story.observation_id)
+    fakes.llm.responses[SpotPositions] = SpotPositions(
+        spots=[SpotPosition(label="The neem tree", u=0.25, v=0.6)]
+    )
+    fakes.world.polls = [WAITING, DONE]
+    fakes.world.files = {
+        "https://wl.test/100k.spz": b"spz-small",
+        "https://wl.test/500k.spz": b"spz-big",
+        "https://wl.test/pano.png": b"\x89PNG\r\n\x1a\npano",
+        "https://wl.test/thumb.jpg": b"\xff\xd8thumb",
+    }
+
+
+async def ask(seed, user_id=None):
+    response = Response()
+    world = await immersive.create_world(
+        seed.heirloom_id, seed.photo_id, User(id=user_id or seed.user_id), response
+    )
+    return world, response.status_code
+
+
+async def status_of(conn, world_id):
+    return await conn.fetchrow("select * from immersive_world where id = $1", world_id)
+
+
+# Asking -----------------------------------------------------------------------------------------
+
+
+async def test_asking_queues_one_world_per_photo(conn, fakes, seed, story):
+    world, code = await ask(seed)
+    again, again_code = await ask(seed)
+
+    assert (code, world.status) == (202, "queued")
+    assert (again.id, again_code) == (world.id, 200), "asking twice never pays twice"
+    job = await conn.fetchrow("select kind, status from job where subject_id = $1", world.id)
+    assert (job["kind"], job["status"]) == ("immersive_world", "queued")
+
+
+async def test_asking_needs_the_family_and_a_finished_interview(conn, fakes, seed):
+    with pytest.raises(HTTPException) as no_story:
+        await ask(seed)
+    assert no_story.value.status_code == 409
+
+    outsider = uuid4()
+    await conn.execute("insert into auth.users values ($1)", outsider)
+    with pytest.raises(HTTPException) as stranger:
+        await ask(seed, outsider)
+    assert stranger.value.status_code == 403
+
+
+async def test_asking_stops_at_the_daily_family_limit(conn, fakes, seed, story, monkeypatch):
+    monkeypatch.setattr(get_settings(), "immersive_daily_limit_per_family", 0)
+    with pytest.raises(HTTPException) as over:
+        await ask(seed)
+    assert over.value.status_code == 429
+
+
+async def test_asking_after_a_failure_queues_it_again(conn, fakes, seed, story):
+    world, _ = await ask(seed)
+    await conn.execute(
+        "update immersive_world set status = 'failed', error = 'boom' where id = $1", world.id
+    )
+    await conn.execute("update job set status = 'failed' where subject_id = $1", world.id)
+
+    again, code = await ask(seed)
+
+    row = await status_of(conn, world.id)
+    assert (again.id, code, row["status"], row["error"]) == (world.id, 202, "queued", None)
+    assert await conn.fetchval("select status from job where subject_id = $1", world.id) == "queued"
+
+
+async def test_a_world_whose_job_died_before_it_ran_reads_as_failed(conn, fakes, seed, story):
+    """A worker that couldn't run the stage failed the job without touching the world row."""
+    world, _ = await ask(seed)
+    await conn.execute(
+        "update job set status = 'failed', error = $2 where subject_id = $1",
+        world.id,
+        "KeyError('immersive_world')",
+    )
+
+    [photo] = await immersive.list_worlds(seed.heirloom_id, User(id=seed.user_id))
+    walk = await immersive.get_world(world.id, User(id=seed.user_id))
+    assert (photo.world.status, walk.status, walk.error) == (
+        "failed",
+        "failed",
+        "KeyError('immersive_world')",
+    )
+
+    again, code = await ask(seed)
+    assert (again.id, code) == (world.id, 202), "Try again works on it"
+    [photo] = await immersive.list_worlds(seed.heirloom_id, User(id=seed.user_id))
+    assert photo.world.status == "queued"
+
+
+async def test_a_world_pins_the_story_it_was_imagined_from(conn, fakes, seed, story):
+    v1 = await conn.fetchval(
+        "insert into story (heirloom_id, version, title, blocks) values ($1, 1, 'v1', '[]') "
+        "returning id",
+        seed.heirloom_id,
+    )
+    v2 = await conn.fetchval(
+        "insert into story (heirloom_id, version, title, blocks) values ($1, 2, 'v2', '[]') "
+        "returning id",
+        seed.heirloom_id,
+    )
+    world, _ = await ask(seed)
+
+    row = await status_of(conn, world.id)
+    assert row["story_id"] == v2, "the latest story, not the first"
+    assert row["heirloom_id"] == seed.heirloom_id and row["source_media_id"] == seed.photo_id
+
+    # A retry after a failure re-pins to the newest story.
+    v3 = await conn.fetchval(
+        "insert into story (heirloom_id, version, title, blocks) values ($1, 3, 'v3', '[]') "
+        "returning id",
+        seed.heirloom_id,
+    )
+    assert v1 != v3
+    await conn.execute(
+        "update immersive_world set status = 'failed', error = 'boom' where id = $1", world.id
+    )
+    await ask(seed)
+    assert await conn.fetchval("select story_id from immersive_world where id = $1", world.id) == v3
+
+
+async def test_a_world_without_any_story_still_builds(conn, fakes, seed, story):
+    world, _ = await ask(seed)
+    assert await conn.fetchval("select story_id from immersive_world where id = $1", world.id) is (
+        None
+    )
+
+
+async def test_the_story_page_sees_each_photo_and_its_world(conn, fakes, seed, story):
+    [before] = await immersive.list_worlds(seed.heirloom_id, User(id=seed.user_id))
+    assert (before.media_id, before.is_cover, before.world) == (seed.photo_id, True, None)
+
+    world, _ = await ask(seed)
+
+    [after] = await immersive.list_worlds(seed.heirloom_id, User(id=seed.user_id))
+    assert (after.world.id, after.world.status) == (world.id, "queued")
+    assert await immersive.list_public_worlds(seed.heirloom_id, "abc") == [], "not ready yet"
+
+
+async def test_every_route_is_hidden_while_the_flag_is_off(conn, fakes, seed, story, monkeypatch):
+    monkeypatch.setattr(get_settings(), "immersive_enabled", False)
+    with pytest.raises(HTTPException) as hidden:
+        await ask(seed)
+    assert hidden.value.status_code == 404
+    with pytest.raises(HTTPException):
+        await immersive.list_worlds(seed.heirloom_id, User(id=seed.user_id))
+
+
+# Building ---------------------------------------------------------------------------------------
+
+
+async def test_a_world_is_built_saved_and_its_spots_placed(conn, fakes, seed, story):
+    ready_world(fakes, story)
+    world, _ = await ask(seed)
+
+    await immersive_world.run(world.id)
+
+    row = await status_of(conn, world.id)
+    assert row["status"] == "ready" and row["provider_world_id"] == "wl-world-1"
+    assert set(row["assets"]) == {"spz_100k", "spz_500k", "pano", "thumbnail"}
+    assert all(p.startswith(f"{seed.family_id}/") for p in row["assets"].values())
+    assert fakes.files[row["assets"]["spz_500k"]] == b"spz-big"
+    assert row["semantics"] == {"metric_scale_factor": 1.5, "ground_plane_offset": 0.3}
+    [spot] = row["hotspots"]
+    assert (spot["u"], spot["v"]) == (0.25, 0.6)
+    assert spot["segment_ids"] == [str(story.segment_id)], "the spot plays her own words"
+    assert fakes.world.started[0]["image"] is None, "a close-up never goes as the image"
+
+    walk = await immersive.get_world(world.id, User(id=seed.user_id))
+    assert walk.label == "Imagined from Nani's words, not a photograph"
+    assert [s.text for s in walk.spots[0].segments] == ["We sat under the neem tree."]
+    assert walk.assets["spz_100k"].startswith("https://storage.test/generated/")
+
+
+async def test_a_wide_photo_of_a_place_is_sent_as_the_image(conn, fakes, seed, story):
+    ready_world(fakes, story)
+    fakes.llm.responses[SceneSpec] = scene(story.memory_id, mode="image")
+    world, _ = await ask(seed)
+
+    await immersive_world.run(world.id)
+
+    assert fakes.world.started[0]["image"].data == b"\xff\xd8fake-jpeg"
+
+
+async def test_a_restarted_job_polls_the_same_world_instead_of_starting_another(
+    conn, fakes, seed, story
+):
+    ready_world(fakes, story)
+    world, _ = await ask(seed)
+    await conn.execute(
+        "update immersive_world set status = 'generating', scene_prompt = 'a courtyard', "
+        "input_mode = 'text', provider_operation_id = 'op-earlier' where id = $1",
+        world.id,
+    )
+
+    await immersive_world.run(world.id)
+
+    assert fakes.world.started == []
+    assert fakes.world.polled[0] == "op-earlier"
+    assert (await status_of(conn, world.id))["status"] == "ready"
+
+
+async def test_facts_from_another_story_are_dropped(conn, fakes, seed, story):
+    ready_world(fakes, story)
+    stranger = uuid4()
+    fakes.llm.responses[SceneSpec] = scene(story.memory_id, stranger)
+    world, _ = await ask(seed)
+
+    await immersive_world.run(world.id)
+
+    row = await status_of(conn, world.id)
+    assert row["used_fact_ids"] == [story.memory_id]
+    assert row["hotspots"][0]["fact_ids"] == [str(story.memory_id)]
+
+
+async def test_a_scene_with_nothing_from_this_story_fails_cleanly(conn, fakes, seed, story):
+    ready_world(fakes, story)
+    fakes.llm.responses[SceneSpec] = scene(uuid4())
+    world, _ = await ask(seed)
+
+    with pytest.raises(ValueError):
+        await immersive_world.run(world.id)
+
+    row = await status_of(conn, world.id)
+    assert (row["status"], row["error"]) == ("failed", "not enough story details yet")
+    assert fakes.world.started == [], "nothing was paid for"
+    await immersive_world.run(world.id)  # the job's retry must not start one either
+    assert fakes.world.started == []
+
+
+async def test_spots_that_cannot_be_placed_still_make_a_ready_world(conn, fakes, seed, story):
+    ready_world(fakes, story)
+    del fakes.llm.responses[SpotPositions]  # the placing call raises
+    world, _ = await ask(seed)
+
+    await immersive_world.run(world.id)
+
+    row = await status_of(conn, world.id)
+    assert row["status"] == "ready"
+    assert (row["hotspots"][0]["u"], row["hotspots"][0]["v"]) == (None, None)
+
+
+async def test_a_busy_world_labs_is_waited_out_not_failed(conn, fakes, seed, story):
+    ready_world(fakes, story)
+    fakes.world.start_errors = [RateLimited(20), RateLimited(20)]
+    world, _ = await ask(seed)
+
+    await immersive_world.run(world.id)
+
+    assert len(fakes.world.started) == 3
+    assert (await status_of(conn, world.id))["status"] == "ready"
+
+
+async def test_a_world_labs_error_fails_the_world_and_forgets_the_operation(
+    conn, fakes, seed, story
+):
+    ready_world(fakes, story)
+    fakes.world.polls = [WorldOp(operation_id="op-1", done=True, error="generation failed")]
+    world, _ = await ask(seed)
+
+    with pytest.raises(RuntimeError):
+        await immersive_world.run(world.id)
+
+    row = await status_of(conn, world.id)
+    assert (row["status"], row["error"]) == ("failed", "generation failed")
+    assert row["provider_operation_id"] is None, "a retry starts a fresh world"
+
+
+# Walking it from the public link ---------------------------------------------------------------
+
+
+async def test_the_public_link_shows_only_ready_worlds_with_the_right_code(
+    conn, fakes, seed, story
+):
+    ready_world(fakes, story)
+    world, _ = await ask(seed)
+
+    with pytest.raises(HTTPException) as not_yet:
+        await immersive.get_public_world(world.id, "abc")
+    assert not_yet.value.status_code == 404
+
+    await immersive_world.run(world.id)
+    assert (await immersive.get_public_world(world.id, "abc")).status == "ready"
+    [shown] = await immersive.list_public_worlds(seed.heirloom_id, "abc")
+    assert shown.world.thumbnail_url.startswith("https://storage.test/generated/")
+    assert await immersive.list_public_worlds(seed.heirloom_id, "nope") == []
+    with pytest.raises(HTTPException) as wrong:
+        await immersive.get_public_world(world.id, "nope")
+    assert wrong.value.status_code == 404
+
+
+def test_a_draft_world_from_world_labs_parses():
+    """What marble-1.0-draft really returned on 2026-10-25: `world_id`, no pano, no semantics."""
+    from app.providers.worldlabs import _assets
+
+    a = _assets(
+        {
+            "world_id": "332becd9",
+            "assets": {
+                "mesh": {"collider_mesh_url": "https://cdn.test/c.glb", "hq_mesh_url": None},
+                "imagery": {"pano_url": None},
+                "splats": {
+                    "spz_urls": {"100k": "https://cdn.test/100k.spz"},
+                    "semantics_metadata": None,
+                },
+                "thumbnail_url": "https://cdn.test/thumbnail.webp",
+                "caption": "a kitchen",
+            },
+        }
+    )
+    assert a.world_id == "332becd9"
+    assert a.pano_url is None and a.metric_scale_factor is None
+    assert a.spz_urls == {"100k": "https://cdn.test/100k.spz"}
+
+
+async def test_a_finished_operation_reads_the_world_record(monkeypatch):
+    from app.providers.worldlabs import WorldLabsWorldGen
+
+    calls = []
+
+    async def call(self, method, path, body=None):
+        calls.append(path)
+        if path.startswith("/operations/"):
+            world = {"world_id": "w1", "assets": {"imagery": {"pano_url": None}}}
+            return {"done": True, "error": None, "response": world}
+        return {"world_id": "w1", "assets": {"imagery": {"pano_url": "https://cdn.test/pano.png"}}}
+
+    monkeypatch.setattr(WorldLabsWorldGen, "_call", call)
+    op = await WorldLabsWorldGen(get_settings()).poll("op-1")
+    assert calls == ["/operations/op-1", "/worlds/w1"]
+    assert op.result and op.result.pano_url == "https://cdn.test/pano.png"

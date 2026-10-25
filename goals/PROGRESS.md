@@ -52,6 +52,14 @@ Format: `YYYY-MM-DD HH:MM UTC — phase — result — evidence`
 - Haptics: lib/haptics.ts (navigator.vibrate, no-op on iPhone Safari) wired to Interview Answer/Done and Capture video Capture/Stop.
 - 50 backend tests pass (membership/retag/archives/filter), tsc + lint + build clean.
 
+## Immersive world per story-photo, fixed + enabled (2026-10-26)
+- Found the full World Labs flow already built but dark: IMMERSIVE_ENABLED unset (default False → all routes 404). Per user answers: kept per-photo design, added story reference only.
+- New migration 20261027000000_immersive_story_ref.sql: immersive_world.story_id → story(id) ON DELETE SET NULL + index + backfill to latest version per heirloom.
+- Router create_world pins latest story version at request time and re-pins on retry; GET world exposes story_id. Semantics/assets/family+public access unchanged (RLS members-read + public link for ready worlds).
+- backend/.env: IMMERSIVE_ENABLED=true, WORLDLABS_MODEL=marble-1.0-draft (~$0.18/world; cap 5/family/day). Fixed a no-trailing-newline glue that corrupted the edit; settings verified loading.
+- 80 backend tests pass (incl. 2 new: pins latest story, re-pins on retry, null when no story); api-types regenerated; tsc + vite build clean. Pre-existing ruff failures in teammate's storytime/provider files left untouched.
+- Still needed on hosted project: apply 20261025300000 + 20261027000000 migrations and set IMMERSIVE_ENABLED + WORLDLABS_MODEL + WORLDLABS_API_KEY there.
+
 ## Interview latency, spoken loop, object fingerprints (2026-10-25)
 - next_question writes only the question text at minimal effort via providers.fast; coverage moves to a background update_coverage job; one-query context load; the streaming answer drafts the question on each 0.6 s pause and returns it on the same socket. Hard cap of 10 questions, WRAP_UP lets the model end sooner. Live e2e: next question 1.3–2.7 s after the answer ends (was 3.9–6.3 s).
 - Interview.tsx is a hands-free loop: speak question (phone TTS) → record → silence detection (2 s after speech) → streamed STT → next question, with I'm done / Hear again / End interview and "Question n of 10".

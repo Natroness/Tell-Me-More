@@ -493,6 +493,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/storytime/available": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Availability */
+        get: operations["availability_api_storytime_available_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stories/{heirloom_id}/storytime": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get */
+        get: operations["get_api_stories__heirloom_id__storytime_get"];
+        put?: never;
+        /** Create */
+        post: operations["create_api_stories__heirloom_id__storytime_post"];
+        /** Remove */
+        delete: operations["remove_api_stories__heirloom_id__storytime_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/public/stories/{heirloom_id}/storytime": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Public */
+        get: operations["get_public_api_public_stories__heirloom_id__storytime_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/requests": {
         parameters: {
             query?: never;
@@ -632,6 +685,97 @@ export interface paths {
         head?: never;
         /** Update Profile */
         patch: operations["update_profile_api_profile_patch"];
+        trace?: never;
+    };
+    "/api/heirlooms/{heirloom_id}/photos/{media_id}/immersive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create World */
+        post: operations["create_world_api_heirlooms__heirloom_id__photos__media_id__immersive_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/heirlooms/{heirloom_id}/immersive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Worlds
+         * @description Each photo of the story that can become a world, and its world if one was asked for.
+         */
+        get: operations["list_worlds_api_heirlooms__heirloom_id__immersive_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/public/heirlooms/{heirloom_id}/immersive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Public Worlds
+         * @description Only finished worlds, for anyone holding the family's story link.
+         */
+        get: operations["list_public_worlds_api_public_heirlooms__heirloom_id__immersive_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/immersive/{world_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get World */
+        get: operations["get_world_api_immersive__world_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/public/immersive/{world_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Public World */
+        get: operations["get_public_world_api_public_immersive__world_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/health": {
@@ -1016,6 +1160,53 @@ export interface components {
              */
             retrieved_at: string;
         };
+        /** ImmersivePhoto */
+        ImmersivePhoto: {
+            /**
+             * Media Id
+             * Format: uuid
+             */
+            media_id: string;
+            /** Is Cover */
+            is_cover: boolean;
+            world: components["schemas"]["WorldSummary"] | null;
+        };
+        /** ImmersiveWorld */
+        ImmersiveWorld: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Heirloom Id
+             * Format: uuid
+             */
+            heirloom_id: string;
+            /** Story Id */
+            story_id: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "writing_scene" | "generating" | "saving" | "placing_spots" | "ready" | "failed";
+            /** Error */
+            error: string | null;
+            /** Narrator */
+            narrator: string | null;
+            /** Label */
+            label: string;
+            /** Assets */
+            assets: {
+                [key: string]: string;
+            };
+            /** Semantics */
+            semantics: {
+                [key: string]: number | null;
+            };
+            /** Spots */
+            spots: components["schemas"]["ResolvedSpot"][];
+        };
         /** InferenceSource */
         InferenceSource: {
             /**
@@ -1164,6 +1355,8 @@ export interface components {
             request_id?: string | null;
             /** Story Id */
             story_id?: string | null;
+            /** Heirloom Id */
+            heirloom_id?: string | null;
             /** Read At */
             read_at?: string | null;
             /** Created At */
@@ -1388,6 +1581,21 @@ export interface components {
             /** Audio Url */
             audio_url: string;
         };
+        /** ResolvedSpot */
+        ResolvedSpot: {
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /** U */
+            u: number | null;
+            /** V */
+            v: number | null;
+            /** Facts */
+            facts: components["schemas"]["SpotFact"][];
+            /** Segments */
+            segments: components["schemas"]["ResolvedSegment"][];
+        };
         /** SegmentCite */
         SegmentCite: {
             /**
@@ -1432,10 +1640,42 @@ export interface components {
             /** Cites */
             cites: (components["schemas"]["SegmentCite"] | components["schemas"]["FactCite"])[];
         };
+        /** SpotFact */
+        SpotFact: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Text */
+            text: string;
+        };
         /** StartedInterview */
         StartedInterview: {
             interview: components["schemas"]["Interview"];
             first_question: components["schemas"]["Turn"];
+        };
+        /** StockCredit */
+        StockCredit: {
+            /** Photographer */
+            photographer: string;
+            /** Page Url */
+            page_url: string;
+            /**
+             * Provider
+             * @default Pixabay
+             */
+            provider?: string;
+            /**
+             * Asset Id
+             * @default
+             */
+            asset_id?: string;
+            /**
+             * License Url
+             * @default https://pixabay.com/service/license-summary/
+             */
+            license_url?: string;
         };
         /** Story */
         Story: {
@@ -1513,6 +1753,40 @@ export interface components {
             /** Created At */
             created_at?: string | null;
         };
+        /** StorytimeAvailability */
+        StorytimeAvailability: {
+            /** Available */
+            available: boolean;
+        };
+        /** StorytimeVideo */
+        StorytimeVideo: {
+            /** Id */
+            id?: string | null;
+            /** Status */
+            status?: ("queued" | "scripting" | "gathering" | "narrating" | "rendering" | "ready" | "failed") | null;
+            /** Updated At */
+            updated_at?: string | null;
+            /**
+             * Stale
+             * @default false
+             */
+            stale?: boolean;
+            /**
+             * Can Manage
+             * @default false
+             */
+            can_manage?: boolean;
+            /** Video Url */
+            video_url?: string | null;
+            /** Poster Url */
+            poster_url?: string | null;
+            /** Duration Ms */
+            duration_ms?: number | null;
+            /** Credits */
+            credits?: components["schemas"]["StockCredit"][];
+            /** Error */
+            error?: string | null;
+        };
         /** Timeline */
         Timeline: {
             /**
@@ -1572,6 +1846,31 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /** WorldSummary */
+        WorldSummary: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Source Media Id
+             * Format: uuid
+             */
+            source_media_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "writing_scene" | "generating" | "saving" | "placing_spots" | "ready" | "failed";
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Thumbnail Url */
+            thumbnail_url?: string | null;
         };
     };
     responses: never;
@@ -2504,6 +2803,150 @@ export interface operations {
             };
         };
     };
+    availability_api_storytime_available_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StorytimeAvailability"];
+                };
+            };
+        };
+    };
+    get_api_stories__heirloom_id__storytime_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                heirloom_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StorytimeVideo"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_api_stories__heirloom_id__storytime_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                heirloom_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StorytimeVideo"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_api_stories__heirloom_id__storytime_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                heirloom_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_public_api_public_stories__heirloom_id__storytime_get: {
+        parameters: {
+            query: {
+                k: string;
+            };
+            header?: never;
+            path: {
+                heirloom_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StorytimeVideo"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_requests_api_requests_get: {
         parameters: {
             query?: {
@@ -2783,6 +3226,166 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Profile"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_world_api_heirlooms__heirloom_id__photos__media_id__immersive_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                heirloom_id: string;
+                media_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorldSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_worlds_api_heirlooms__heirloom_id__immersive_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                heirloom_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImmersivePhoto"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_public_worlds_api_public_heirlooms__heirloom_id__immersive_get: {
+        parameters: {
+            query: {
+                k: string;
+            };
+            header?: never;
+            path: {
+                heirloom_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImmersivePhoto"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_world_api_immersive__world_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                world_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImmersiveWorld"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_public_world_api_public_immersive__world_id__get: {
+        parameters: {
+            query: {
+                k: string;
+            };
+            header?: never;
+            path: {
+                world_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImmersiveWorld"];
                 };
             };
             /** @description Validation Error */

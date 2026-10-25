@@ -47,10 +47,12 @@ We optimize for **one** track and pick up cheap side prizes only where the integ
 
 ### 2.2 Scope tiers
 
+**English only.** Interviews, transcription, questions, stories, original voice clips, generated narration, captions, and UI copy are in English. Translation and support for other languages are out of scope.
+
 | Tier | Features |
 |---|---|
 | **MVP (must demo)** | Photo capture. Object reading. Live voice interview with follow-ups. Transcript with timestamps. Cited story page with tap-to-play audio. Era context cards from SerpApi. Shareable link. |
-| **Should** | Family members add their own memories (voice or text). Simple family roster (people with relationship to the narrator). Muse Image cover art. Language: narrator speaks Hindi/Spanish, story shown in English with the original audio kept. |
+| **Should** | Family members add their own memories (voice or text). Simple family roster (people with relationship to the narrator). Muse Image cover art. English interviews and stories, with the original English audio kept. |
 | **Stretch** | Muse connector ("Hey Muse, what did Grandpa say about his watch?"). Family tree view. "Life lessons" recordings. Traditions calendar. "Call Nani" scheduling that suggests a time you are both free. Share to Facebook. |
 | **Cut** | Facebook Graph API data import (app review takes weeks). Voice cloning or AI narration of the relative's voice (violates our own core rule). Native mobile apps. |
 
@@ -171,7 +173,7 @@ Tell Me More/
 | Need | API | Call | VERIFY |
 |---|---|---|---|
 | Object reading, follow-up questions, story writing, era summaries | Meta Model API, `muse-spark-1.x` | Chat completions with structured output (JSON schema) | Does Muse Spark accept image input? If not, use Gemini for the vision step only. Current model id (1.1 vs 1.2). |
-| Transcription | Muse Voice Transcribe, `muse-voice-transcribe-1.0` | Sources disagree: realtime WebSocket vs batch upload of 16 kHz mono WAV up to 10 min. Design supports both (§5.3). | Exact endpoint, whether it returns segment timestamps, language support. |
+| Transcription | Muse Voice Transcribe, `muse-voice-transcribe-1.0` | Sources disagree: realtime WebSocket vs batch upload of 16 kHz mono WAV up to 10 min. Design supports both (§5.3). | Exact endpoint, whether it returns segment timestamps, English transcription quality. |
 | Cover art | Muse Image | `images/generations` with a prompt built from the story | Endpoint path and response format. |
 | Object identification | SerpApi `engine=google_lens` | `url=<signed photo URL>` → `visual_matches[]` | Signed URL must be publicly fetchable for ~5 min. |
 | Era context | SerpApi `engine=google` (+ `google_news` for old archive hits) | Queries per (year, place, topic) | Free tier quota. Cache aggressively. |
@@ -179,6 +181,10 @@ Tell Me More/
 | Muse connector (stretch) | Meta connector format | Expose `search_family_stories`, `get_story`, `add_memory` | Ask Meta staff what format Muse connectors use. |
 
 ### 3.4 Verified against live APIs (2026-10-24, `make check`)
+
+Storytime follow-up (2026-10-25): Gemini `gemini-3.8-flash-tts` with the fixed English Sulafat
+voice and Pixabay both passed authenticated adapter probes. Gemini billing is funded after the
+earlier HTTP 402. The English WAV probe took 3.94 s; Pixabay search took 0.23 s.
 
 | Service | Result | Latency seen |
 |---|---|---|
@@ -189,6 +195,7 @@ Tell Me More/
 | Gemini fallback | Works, but `gemini-2.5-flash` is retired for new users. Use `gemini-3.8-flash`. | 5 to 49 s |
 | SerpApi Google Lens | Works on a Supabase signed URL. About 60 matches for a pocket watch. | 22 s |
 | Supabase Storage | Works with the `sb_secret_` key on `apikey`. Signed download URLs need no key. | 5 s |
+| World Labs World API v1 | **Works** with `WORLDLABS_API_KEY` (2026-10-25). The finished operation's `response` has `world_id` (not `id`) and an empty `pano_url`, so the provider reads `GET /worlds/{id}` for the assets. | 28 s for a `marble-1.0-draft` world |
 
 Muse Spark is a reasoning model, and `reasoning_effort` defaults to `medium` (accepted: `minimal`, `low`, `medium`, `high`, `xhigh`, `max`; not `none`). At the default, `next_question` spent about 2,100 reasoning tokens to write about 120 visible ones, which took 15 s. At `minimal` it takes about 3 s, and the questions are just as good. `LLM.json(effort=...)` sets it per call. The live interview uses `minimal`, and the post-interview stages keep the default.
 
@@ -201,6 +208,16 @@ Then `next_question` stopped writing JSON. It returns only the question text, at
 An interview asks at most 10 questions (`next_question.MAX_QUESTIONS`). The model may end it sooner by replying `WRAP_UP`. The narrator can end it at any time.
 
 Supabase's session pooler caps clients per project (15 here). The asyncpg pool opens connections on demand and holds at most `DB_POOL_SIZE` (default 5), so the API, the worker and a dev script fit together.
+
+One live `marble-1.0-draft` world (2026-10-25, built from "The Wooden Picnic Knife" through the real `immersive_world` stage):
+
+- Time: writing the scene took 36 s (vision at default effort), starting the world 6.5 s, World Labs 28 s (seen at 31 s with 10 s polling), saving 6 s and placing spots 14 s. That is about 95 s end to end. `marble-1.1` is quoted at about 5 minutes and is not measured yet.
+- Cost: 230 credits (80 for the text panorama, 150 for the draft world).
+- Files per world, copied into the `generated` bucket: `spz_100k` 1.22 MB, `spz_500k` 5.84 MB, `pano` 3.41 MB (PNG, 2304 × 1152), `thumbnail` 0.03 MB (WebP) and `collider` 1.80 MB (GLB), about 12.3 MB in all.
+- Expiry: asset URLs are plain `cdn.marble.worldlabs.ai` paths with no signature or query string, `cache-control: public, max-age=3600` and open CORS. Anyone with the URL can fetch them, even though the world is private. The operation record expires 3 hours after it starts. We copy every file at once, so neither matters to the app.
+- Draft worlds return no `semantics_metadata`. The viewer falls back to scale 1 and ground 0, and the camera at the origin sits at the panorama's centre.
+- Direction: `spotDirection` in `WorldViewer.tsx` is right. With the splat turned by the quaternion (1, 0, 0, 0), the camera facing −Z sees the pano's centre column (u = 0.5), facing +X sees u = 0.75, and all four spots placed on the pano landed on their objects in the render.
+- This text-mode panorama had real scenery only in a window about 90° wide around u = 0.5. The rest was a plain earth wall, so all four spots sat between u = 0.505 and 0.523.
 
 Network gotcha: some venue and campus networks block outbound ports 5432 and 6543, so Postgres can't connect even with correct credentials. Use a phone hotspot for development, and the Vultr box for the demo.
 
@@ -244,6 +261,13 @@ Source = Annotated[
 UI color per kind: memory = warm amber, observation = slate, history = blue with a link icon, inference = dotted gray and labeled "Tell Me More's note".
 
 ### 4.2 Tables (Postgres)
+
+Storytime adds `storytime` (one current video and generation per heirloom) and an internal
+`storytime_attempt` ledger. The ledger records every explicit request for the rolling daily cap
+and retains asset paths for cleanup. `generation_id` identifies the active request;
+`video_story_id` identifies the source version of the playable video. Both tables have RLS;
+only member reads of `storytime` are granted to clients. Schema: migration
+`20261026000000_storytime.sql`.
 
 ```sql
 -- Families and people -------------------------------------------------------
@@ -311,7 +335,7 @@ create table interview (
   heirloom_id uuid not null references heirloom(id) on delete cascade,
   narrator_id uuid not null references person(id),
   interviewer_user_id uuid not null,
-  language text default 'en',                  -- narrator's spoken language
+  language text default 'en',                  -- English only ('en') for the current product
   state text not null default 'ready',         -- see §5.2
   coverage jsonb not null default '{}',        -- slot → filled? (§5.2)
   created_at timestamptz default now(),
@@ -334,8 +358,8 @@ create table segment (                        -- timed transcript pieces; citati
   turn_id uuid not null references turn(id) on delete cascade,
   start_ms int not null,
   end_ms int not null,
-  text text not null,                          -- original language
-  text_en text                                 -- translation if language != en
+  text text not null,                          -- original English transcript
+  text_en text                                 -- reserved field; translation is out of scope
 );
 
 -- Knowledge -----------------------------------------------------------------
@@ -443,6 +467,10 @@ The frontend gets the matching TS discriminated union from the generated `api-ty
 
 ### 5.1 Pipeline stages
 
+Explicit Storytime requests queue `storytime_script` followed by `storytime_render`. Both are in
+`SLOW_KINDS` alongside Immersive, using the existing separate slow lane. Only one video encode
+runs at a time, with two encoder threads; model and storage calls hold no database connection.
+
 Each stage is a pure-ish function `(inputs from DB) → rows to write`, run as a `job`. Re-running a stage replaces its own output rows, so retries converge to the same state.
 
 | # | Job kind | Trigger | Input | Output | Provider |
@@ -531,6 +559,12 @@ On failure, send the model the specific errors and retry once. On second failure
 
 ### 5.6 API surface
 
+Storytime routes: `GET /api/storytime/available`; `POST`, `GET`, and `DELETE`
+`/api/stories/{heirloom_id}/storytime`; and `GET /api/public/stories/{heirloom_id}/storytime?k=`.
+Creation/removal require the storyteller (or creator when unset) or family owner. Public access
+requires the family invite code and a completed video. Feature flag: `STORYTIME_ENABLED=false`
+by default. Full contracts: `docs/STORYTIME.md` and generated OpenAPI types.
+
 FastAPI routers. All routes are JSON, require a Supabase JWT (`Authorization: Bearer`), and check family membership. Request and response bodies are Pydantic models, which also produce the OpenAPI spec the frontend types come from.
 
 ```
@@ -542,7 +576,7 @@ POST   /api/heirlooms                        { familyId } → { heirloom, upload
 POST   /api/heirlooms/:id/photos/complete    { mediaId }  → enqueues analyze_object + lens_lookup
 GET    /api/heirlooms/:id                    → heirloom + observations + seed questions + latest story
 
-POST   /api/interviews                       { heirloomId, narratorId, language } → interview + first question
+POST   /api/interviews                       { heirloomId, narratorId, language: "en" } → interview + first question
 POST   /api/interviews/:id/answers           → { uploadUrl, turnId }
 POST   /api/interviews/:id/answers/:turnId/complete   → enqueues transcribe_turn → next_question
 POST   /api/interviews/:id/finish            → enqueues extract_facts → era_context → compose_story → cover_art
@@ -598,9 +632,39 @@ class Search(Protocol):
 
 **analyze_object (system):** You are helping a family preserve the story of an object. Describe only what is visible: materials, markings, engravings, wear, repairs, damage, style clues. For each detail give a short label, one sentence, an approximate bounding box, and your confidence. Do not guess who owned it. Then write 3 warm, specific questions a grandchild could ask a grandparent, each anchored to one detail.
 
-**next_question (system):** You are a gentle oral-history interviewer talking with {narrator}, who is {relation} to the listener, about {object}. You will see what the object looks like, the conversation so far, and which parts of the story are still unknown. Ask exactly one short question in {language}. Follow up on names, places, and feelings they just mentioned before moving on. Never correct them. Never put words in their mouth.
+**next_question (system):** You are a gentle oral-history interviewer talking with {narrator}, who is {relation} to the listener, about {object}. You will see what the object looks like, the conversation so far, and which parts of the story are still unknown. Ask exactly one short question in English. Follow up on names, places, and feelings they just mentioned before moving on. Never correct them. Never put words in their mouth.
 
 **compose_story (system):** Write a short documentary-style story (300 to 500 words) about this object, for future grandchildren. Use only the facts and transcript segments provided, and cite their ids on every sentence. Use at least two verbatim quotes as quote blocks. Keep historical context in context blocks, never mixed into memory sentences. If you need a connecting sentence that no source supports, cite the inference fact you create for it.
+
+### 5.10 Immersive memories
+
+Full spec: `docs/IMMERSIVE.md`. A family member taps **Create immersive experience** on a story photo. The `immersive_world` job writes a scene from the photo and the story's memory and observation facts, generates a walkable Gaussian-splat world with World Labs' World API v1 (`marble-1.1`, `marble-1.0-draft` in dev), copies the files into the `generated` bucket, and places spots on the panorama. Each spot plays the narrator's original clips. The world is opt-in, one per photo, capped per family per day, and hidden behind `IMMERSIVE_ENABLED`.
+
+It never touches the interview: the worker runs `immersive_world` in its own lane (`SLOW_KINDS`, `IMMERSIVE_CONCURRENCY` slots, 2 s polling), and the stage holds no database connection while it waits on World Labs. A worker only claims job kinds it has a stage for, so one still running older code leaves newer jobs alone instead of failing them. If a job dies before its stage runs, the API reports the world as failed from the job's status, and **Try again** queues it again. The viewer (`routes/WorldViewer.tsx`, three + Spark) is a lazy route chunk.
+
+The key is `WORLDLABS_API_KEY`, a World API key from platform.worldlabs.ai. The older `WLT_API_KEY` is an Atlas beta key: it gets 401 on World API v1, and Atlas makes posed views, not walkable worlds. The `immersive_world` table is migrated on the hosted database. §3.4 has the numbers from one live draft world.
+
+### 5.11 Storytime video
+
+English-only, opt-in videos retell a published story with fixed Gemini narration, clips of the
+storyteller's original recordings, family photos, Muse illustrations and optional Pixabay context
+photos. Every narration scene cites facts/segments. The AI never imitates the storyteller.
+Images receive slow pan/zoom and crossfades; FFmpeg renders a 720p H.264/AAC MP4 with English
+captions, provenance, credits and quiet CC0 music (muted during original voice). Assets stay in
+private generated storage under the family ID. Playback URLs last six hours.
+
+An immutable attempt ID guards all writes, so cancelled or replaced jobs cannot publish over a
+new request. The cap counts regenerations/removals too. The previous completed video stays
+playable while regenerating, with staleness derived from its source story version. Member progress
+uses Realtime plus polling; public pages show a completed native video player only.
+
+Verification on 2026-10-25: real English narration through the implemented adapter took 3.94 s;
+Pixabay returned eight usable images in 0.23 s. Media probes confirmed FFmpeg/ffprobe, zoompan,
+xfade, libass subtitles and sidechain compression locally. A real three-scene FFmpeg smoke test
+passed. Hosted Storytime migration `20261026000000` is applied with RLS and Realtime verified.
+Backend validation passes 101 tests, including a real FFmpeg smoke render; lint/types/build pass.
+Full family-video generation time, production CPU impact and phone playback still need
+an opted-in live run; no unmeasured end-to-end timing is claimed. Checklist: `docs/STORYTIME_TODO.md`.
 
 ---
 
@@ -633,7 +697,7 @@ Demo line: "Hey Muse, what did Nani say about her wedding ring?" and Muse answer
 **Day-one verification list** (one person, first 90 minutes):
 
 1. Meta Model API key works. Send an image to Muse Spark. Note model id.
-2. Muse Voice Transcribe: send a 20-second WAV. Check for timestamps and Hindi/Spanish support.
+2. Muse Voice Transcribe: send a 20-second WAV. Check for timestamps and English transcription quality.
 3. Muse Image: generate one image. Note endpoint.
 4. SerpApi Google Lens on a signed Supabase URL.
 5. Ask Meta staff about the connector format.

@@ -19,7 +19,14 @@ JobKind = Literal[
     "era_context",
     "compose_story",
     "cover_art",
+    "immersive_world",
+    "storytime_script",
+    "storytime_render",
 ]
+
+# Minutes-long jobs. They run in their own worker lane so they never hold a slot an interview
+# is waiting on (docs/IMMERSIVE.md §4).
+SLOW_KINDS: tuple[JobKind, ...] = ("immersive_world", "storytime_script", "storytime_render")
 
 
 async def enqueue(

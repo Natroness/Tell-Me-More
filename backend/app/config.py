@@ -1,6 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Provider = Literal["meta", "gemini"]
@@ -33,6 +34,28 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-3.8-flash"
 
     serpapi_key: str = ""
+
+    # Storytime is English-only and never enqueued by the interview pipeline.
+    storytime_enabled: bool = False
+    storytime_daily_limit_per_family: int = Field(5, ge=0)
+    storytime_min_seconds: float = Field(60, ge=1)
+    storytime_max_seconds: float = Field(150, ge=1)
+    tts_provider: Literal["gemini"] = "gemini"
+    tts_model: str = "gemini-3.8-flash-tts"
+    tts_voice: str = "Sulafat"
+    pixabay_api_key: str = ""
+
+    # Immersive memories (docs/IMMERSIVE.md). The World API v1 key comes from platform.worldlabs.ai.
+    worldlabs_api_key: str = Field(
+        "", validation_alias=AliasChoices("worldlabs_api_key", "wlt_api_key")
+    )
+    worldlabs_base_url: str = "https://api.worldlabs.ai"
+    worldlabs_model: str = "marble-1.1"  # marble-1.0-draft (about $0.18 a world) in dev
+    immersive_enabled: bool = False  # off: every immersive route answers 404
+    immersive_concurrency: int = 2
+    immersive_daily_limit_per_family: int = 5
+    immersive_poll_seconds: float = 10.0
+    immersive_timeout_seconds: int = 900
 
     worker_enabled: bool = True
     worker_concurrency: int = 8

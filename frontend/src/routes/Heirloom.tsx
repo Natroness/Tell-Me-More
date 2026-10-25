@@ -1,10 +1,13 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
+import { ImmersiveButton } from '@/components/immersive/ImmersiveButton'
+import { StorytimeSection } from '@/components/storytime/StorytimeSection'
 import { StoryView } from '@/components/story/StoryView'
 import { BottomNav } from '@/components/ui/Nav'
 import { ScreenHeader } from '@/components/ui/Screen'
 import { api } from '@/lib/api'
+import { useImmersivePhotos } from '@/lib/immersive'
 import { useLiveQuery } from '@/lib/realtime'
 
 export function Heirloom() {
@@ -47,15 +50,31 @@ export function Heirloom() {
     onSuccess: (r) => navigate(`/interview/${r.interview.id}`),
   })
 
+  const worlds = useImmersivePhotos(heirloomId)
+
   if (!detail.data) return null
   const { heirloom, observations, seed_questions } = detail.data
+  // Worlds are made from a finished story, so the button waits for one.
+  const photoAction = (mediaId: string) => {
+    const photo = story.data && worlds.get(mediaId)
+    return photo ? <ImmersiveButton photo={photo} heirloomId={heirloomId} /> : null
+  }
+  const cover = [...worlds.values()].find((p) => p.is_cover)
 
   return (
     <main className="mx-auto flex max-w-2xl flex-col gap-6 px-4 py-8">
       <ScreenHeader title="Heirloom" />
-      {heirloom.cover_url && <img src={heirloom.cover_url} className="rounded-xl" />}
+      {heirloom.cover_url && (
+        <div className="relative">
+          <img src={heirloom.cover_url} className="w-full rounded-xl" />
+          {cover && <div className="absolute inset-x-3 bottom-3">{photoAction(cover.media_id)}</div>}
+        </div>
+      )}
       {story.data ? (
-        <StoryView story={story.data} />
+        <>
+          <StorytimeSection heirloomId={heirloomId} />
+          <StoryView story={story.data} photoAction={photoAction} />
+        </>
       ) : (
         <>
           <h1 className="font-serif text-3xl">{heirloom.title ?? 'Reading the object…'}</h1>

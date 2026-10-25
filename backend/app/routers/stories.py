@@ -110,7 +110,8 @@ async def _load_story(conn: asyncpg.Connection, heirloom_id: UUID) -> Story:
     )
     photos = await conn.fetch(
         "select id, kind, storage_path from media "
-        "where heirloom_id = $1 and kind in ('photo', 'scan', 'generated_image')",
+        "where heirloom_id = $1 and kind in ('photo', 'scan', 'generated_image') "
+        "and storage_path not like '%/storytime/%'",
         heirloom_id,
     )
     memories = await conn.fetch(

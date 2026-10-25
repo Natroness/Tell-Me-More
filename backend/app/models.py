@@ -159,6 +159,37 @@ class StoryDraft(BaseModel):
     blocks: list[StoryBlock]
 
 
+class SceneVisual(BaseModel):
+    source: Literal["family_photo", "generated", "stock"]
+    media_id: UUID | None = None
+    prompt: str | None = Field(None, max_length=1200)
+    stock_query: str | None = Field(None, max_length=100)
+    motion: Literal["zoom_in", "zoom_out", "pan_left", "pan_right"] = "zoom_in"
+
+
+class NarrationScene(BaseModel):
+    type: Literal["narration"]
+    narration: str = Field(min_length=1, max_length=320)
+    cites: list[Citation] = Field(min_length=1)
+    visual: SceneVisual
+    caption: str | None = Field(None, max_length=40)
+
+
+class VoiceScene(BaseModel):
+    type: Literal["voice"]
+    segment_ids: list[UUID] = Field(min_length=1, max_length=3)
+    visual: SceneVisual
+
+
+StorytimeScene = Annotated[NarrationScene | VoiceScene, Field(discriminator="type")]
+
+
+class Storyboard(BaseModel):
+    title: str = Field(min_length=1, max_length=160)
+    mood: Literal["tender", "nostalgic", "joyful", "bittersweet"]
+    scenes: list[StorytimeScene] = Field(min_length=3, max_length=14)
+
+
 # Interview.
 
 InterviewState = Literal["ready", "asking", "listening", "thinking", "wrapping_up", "done"]
@@ -203,3 +234,38 @@ class ObjectReading(BaseModel):
     # heirloom so later captures can be matched against it without rereading any photo.
     signature: str
     seed_questions: list[str] = Field(min_length=1, max_length=3)
+
+
+# Immersive memories (docs/IMMERSIVE.md). A spot in the world plays the narrator's own words.
+
+
+class Hotspot(BaseModel):
+    id: str  # short slug, unique within the world
+    label: str = Field(max_length=60)
+    fact_ids: list[UUID] = Field(min_length=1)
+    segment_ids: list[UUID] = []  # the clips to play; empty for a spot of observations only
+    u: float | None = Field(None, ge=0, le=1)  # yaw on the panorama, None if not located
+    v: float | None = Field(None, ge=0, le=1)  # pitch on the panorama
+
+
+class HotspotPlan(BaseModel):
+    label: str = Field(max_length=60)
+    fact_ids: list[UUID] = Field(min_length=1)
+
+
+class SceneSpec(BaseModel):
+    # "image" only when the photo shows a wide or medium view of a place.
+    input_mode: Literal["image", "text"]
+    scene_prompt: str = Field(max_length=900)
+    used_fact_ids: list[UUID] = Field(min_length=1)
+    hotspots: list[HotspotPlan] = Field(min_length=1, max_length=6)
+
+
+class SpotPosition(BaseModel):
+    label: str
+    u: float | None = Field(None, ge=0, le=1)
+    v: float | None = Field(None, ge=0, le=1)
+
+
+class SpotPositions(BaseModel):
+    spots: list[SpotPosition]

@@ -120,7 +120,7 @@ async def job_failed(conn, family_id: UUID) -> None:
         raise RuntimeError(f"jobs failed: {[(f['kind'], f['error']) for f in failed]}")
 
 
-async def run(n_answers: int, batch: bool, silence_s: float) -> None:
+async def run(n_answers: int, batch: bool, silence_s: float, storytime: bool = False) -> None:
     p = get_providers()
     family_id, narrator_id, heirloom_id, photo_id = uuid4(), uuid4(), uuid4(), uuid4()
     user_id = uuid4()  # stages never check membership; no auth user is created
@@ -309,10 +309,69 @@ async def run(n_answers: int, batch: bool, silence_s: float) -> None:
         await wait_for("stage 8 done (cover)", lambda: jobs_done("cover_art"), limit_s=300)
 
         await report(conn, heirloom_id, interview_id)
+    if storytime:
+        await render_storytime(family_id, heirloom_id, user_id)
     say(
         f"total {time.perf_counter() - started:.0f}s. Clean up: "
         f"uv run python -m scripts.e2e_pipeline --cleanup {family_id}"
     )
+
+
+async def render_storytime(family_id: UUID, heirloom_id: UUID, user_id: UUID) -> None:
+    """Explicit opt-in diagnostic, restricted to the synthetic E2E family."""
+    attempt_id = uuid4()
+    async with db.pool().acquire() as conn, conn.transaction():
+        if (
+            await conn.fetchval("select name from family where id=$1", family_id)
+            != "E2E test family"
+        ):
+            raise ValueError("Storytime diagnostic requires a synthetic E2E family")
+        story_id = await conn.fetchval(
+            "select id from story where heirloom_id=$1 and status='published' "
+            "order by version desc limit 1",
+            heirloom_id,
+        )
+        st_id = await conn.fetchval(
+            "insert into storytime(family_id,heirloom_id,story_id,requested_by,generation_id) "
+            "values($1,$2,$3,$4,$5) returning id",
+            family_id,
+            heirloom_id,
+            story_id,
+            user_id,
+            attempt_id,
+        )
+        await conn.execute(
+            "insert into storytime_attempt(id,family_id,heirloom_id,storytime_id,requested_by) "
+            "values($1,$2,$3,$4,$5)",
+            attempt_id,
+            family_id,
+            heirloom_id,
+            st_id,
+            user_id,
+        )
+        await enqueue(conn, "storytime_script", attempt_id, family_id)
+    last_status = None
+    last_time = time.perf_counter()
+
+    async def ready():
+        nonlocal last_status, last_time
+        async with db.pool().acquire() as conn:
+            row = await conn.fetchrow(
+                "select status,error,duration_ms from storytime where id=$1", st_id
+            )
+        if row["status"] != last_status:
+            now = time.perf_counter()
+            say(
+                f"storytime: {last_status or 'queued'} took {now - last_time:.1f}s; "
+                f"now {row['status']}"
+            )
+            last_status, last_time = row["status"], now
+        if row["status"] == "failed":
+            raise RuntimeError(f"Storytime failed: {row['error']}")
+        return row if row["status"] == "ready" else None
+
+    row = await wait_for("Storytime MP4 ready", ready, limit_s=900)
+    say(f"storytime: duration {row['duration_ms'] / 1000:.1f}s")
 
 
 async def report(conn, heirloom_id: UUID, interview_id: UUID) -> None:
@@ -390,7 +449,23 @@ async def cleanup(family_id: UUID) -> None:
         name = await conn.fetchval("select name from family where id = $1", family_id)
         if name != "E2E test family":
             raise SystemExit(f"refusing: family {family_id} is {name!r}, not an E2E test family")
-    bucket = {"photo": "photos", "audio": "audio", "generated_image": "generated"}
+        attempts = await conn.fetch(
+            "select assets from storytime_attempt where family_id=$1", family_id
+        )
+    intermediate = {
+        v["path"]
+        for a in attempts
+        for v in a["assets"].values()
+        if isinstance(v, dict) and "path" in v
+    }
+    await storage.remove("generated", sorted(intermediate))
+    bucket = {
+        "photo": "photos",
+        "audio": "audio",
+        "generated_image": "generated",
+        "generated_video": "generated",
+        "generated_audio": "generated",
+    }
     s = get_settings()
     async with httpx.AsyncClient(timeout=30) as http:
         for kind, b in bucket.items():
@@ -419,6 +494,7 @@ async def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--answers", type=int, default=3)
     ap.add_argument("--cleanup", type=UUID)
+    ap.add_argument("--storytime", action="store_true", help="Also make an English Storytime video")
     ap.add_argument("--batch", action="store_true", help="upload answers instead of streaming")
     ap.add_argument("--silence", type=float, default=2.0, help="quiet that ends an answer")
     args = ap.parse_args()
@@ -437,7 +513,7 @@ async def main() -> None:
 
             answer_stream.require_member = no_membership_check
             answer_stream.user_from_token = lambda token: None
-        await run(args.answers, args.batch, args.silence)
+        await run(args.answers, args.batch, args.silence, args.storytime)
     finally:
         stop.set()
         if worker:

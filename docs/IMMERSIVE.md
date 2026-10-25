@@ -68,6 +68,7 @@ create table immersive_world (
   family_id uuid not null references family(id) on delete cascade,
   heirloom_id uuid not null references heirloom(id) on delete cascade,
   source_media_id uuid not null references media(id) on delete cascade,
+  story_id uuid references story(id) on delete set null,  -- latest story at request time; reference only
   requested_by uuid not null,                       -- auth user id
   requested_by_person uuid references person(id) on delete set null,
   status text not null default 'queued' check (status in

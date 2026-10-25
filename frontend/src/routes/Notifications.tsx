@@ -21,19 +21,21 @@ export function Notifications() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['notifications'] }),
   })
 
-  async function open(n: { id: string; request_id?: string | null }) {
+  async function open(n: { id: string; type: string; request_id?: string | null; heirloom_id?: string | null }) {
     try {
       await read.mutateAsync(n.id)
     } catch {
       /* ignore */
     }
-    if (n.request_id) navigate(`/requests/${n.request_id}`)
+    if (n.type === 'storytime_ready' && n.heirloom_id) navigate(`/h/${n.heirloom_id}`)
+    else if (n.request_id) navigate(`/requests/${n.request_id}`)
   }
 
   const label: Record<string, string> = {
     request_received: 'Someone wants to hear your story',
     request_declined: 'A storyteller could not help',
     story_ready: 'A story is ready',
+    storytime_ready: 'A Storytime video is ready',
     memory_added: 'Someone added a memory',
   }
 

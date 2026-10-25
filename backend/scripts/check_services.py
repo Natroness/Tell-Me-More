@@ -4,7 +4,9 @@ Run: `make check` (or `uv run python -m scripts.check_services` from backend/).
 Prints PASS/FAIL per check with latency. Secrets are redacted from all output.
 """
 
+import argparse
 import asyncio
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -24,7 +26,9 @@ from app.config import get_settings
 from app.jobs.stages.common import sniff_image_mime
 from app.providers.base import Blob
 from app.providers.gemini import GeminiLLM
+from app.providers.gemini_tts import GeminiTTS
 from app.providers.meta import MetaASR, MetaImage, MetaLLM
+from app.providers.pixabay import Pixabay
 from app.providers.serpapi import SerpApi
 
 S = get_settings()
@@ -36,6 +40,7 @@ SECRETS = [
         S.meta_api_key,
         S.gemini_api_key,
         S.serpapi_key,
+        S.pixabay_api_key,
     )
     if v
 ]
@@ -114,7 +119,8 @@ async def db_schema() -> str:
         problems.append(f"RLS off: {no_rls}")
     if not private or public_helpers:
         problems.append("old migration version (helpers in public, no private schema)")
-    if realtime != "interview,job,memory_note,story,turn":
+    required_realtime = {"interview", "job", "memory_note", "story", "turn", "storytime"}
+    if not required_realtime.issubset(set((realtime or "").split(","))):
         problems.append(f"realtime tables: {realtime}")
     if buckets != "audio,generated,photos":
         problems.append(f"buckets: {buckets}")
@@ -267,7 +273,47 @@ async def serpapi_lens() -> str:
     return f"{len(matches)} matches, top: {[m.title for m in matches[:3]]}"
 
 
+async def storytime_media() -> str:
+    assert shutil.which("ffmpeg") and shutil.which("ffprobe"), "Install ffmpeg and ffprobe"
+    result = await asyncio.to_thread(
+        subprocess.run, ["ffmpeg", "-hide_banner", "-filters"], capture_output=True, text=True
+    )
+    assert all(
+        name in result.stdout for name in ("zoompan", "xfade", "subtitles", "sidechaincompress")
+    )
+    return "ffmpeg + ffprobe, zoompan, xfade, libass subtitles and music ducking available"
+
+
+async def storytime_tts() -> str:
+    blob = await GeminiTTS(S).speak("Her family kept the watch as a reminder of home.")
+    assert blob.data.startswith(b"RIFF"), "Narration is not a WAV file"
+    return f"{S.tts_model}, fixed {S.tts_voice} English voice, {len(blob.data)} bytes"
+
+
+async def storytime_stock() -> str:
+    photos = await Pixabay(S, cache=False).search("old pocket watch")
+    assert photos, "No landscape stock results; check PIXABAY_API_KEY"
+    return f"{len(photos)} usable images; first credit: {photos[0].photographer} / Pixabay"
+
+
 async def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--storytime", action="store_true", help="Also probe English TTS and Pixabay"
+    )
+    parser.add_argument(
+        "--storytime-only", action="store_true", help="Probe only Storytime services"
+    )
+    parser.add_argument("-v", action="store_true")
+    args = parser.parse_args()
+    await check("storytime: media tools", storytime_media)
+    if args.storytime or args.storytime_only:
+        await check("storytime: English narration", storytime_tts)
+        await check("storytime: Pixabay stock", storytime_stock)
+    if args.storytime_only:
+        if any(not ok for _, ok, _, _ in results):
+            raise SystemExit(1)
+        return
     await check("db: schema + RLS + buckets", db_schema)
     await check("storage: server roundtrip", storage_roundtrip)
     await check("storage: browser upload", storage_browser_upload)
@@ -279,6 +325,8 @@ async def main() -> None:
     await check("serpapi: google lens", serpapi_lens)
     failed = [r for r in results if not r[1]]
     print(f"\n{len(results) - len(failed)}/{len(results)} passed")
+    if failed:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Schemas } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
@@ -27,10 +27,13 @@ export function StoryView({
   story,
   storytellerName,
   onFollowUp,
+  photoAction,
 }: {
   story: Story
   storytellerName?: string
   onFollowUp?: () => void
+  /** Drawn over each photo, keyed by its media id (the immersive-world button). */
+  photoAction?: (mediaId: string) => ReactNode
 }) {
   const audio = useRef<HTMLAudioElement>(null)
   const mode = useRef<Mode>(null)
@@ -198,10 +201,14 @@ export function StoryView({
       case 'photo': {
         const url = story.photos[b.media_id]
         if (!url) return null
+        const action = photoAction?.(b.media_id)
         return (
           <figure key={i} className="overflow-hidden rounded-xl bg-white shadow">
-            <img src={url} alt={b.caption?.text ?? ''} className="w-full object-cover" />
-            {b.caption && <figcaption className="p-3 text-sm">{b.caption.text}</figcaption>}
+            <div className="relative">
+              <img src={url} alt={b.caption?.text ?? ''} className="w-full object-cover" />
+              {action && <div className="absolute inset-x-3 bottom-3">{action}</div>}
+            </div>
+            {b.caption && <figcaption className="p-3 text-sm">{renderSentence(b.caption, 0)}</figcaption>}
           </figure>
         )
       }

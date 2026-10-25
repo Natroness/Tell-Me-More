@@ -17,6 +17,7 @@ class Notification(BaseModel):
     type: str
     request_id: UUID | None = None
     story_id: UUID | None = None
+    heirloom_id: UUID | None = None
     read_at: str | None = None
     created_at: str | None = None
 
@@ -26,9 +27,9 @@ async def list_notifications(user: CurrentUser) -> list[Notification]:
     async with pool().acquire() as conn:
         rows = await conn.fetch(
             """
-            select n.id, n.recipient_id, n.type, n.request_id, n.story_id,
+            select n.id, n.recipient_id, n.type, n.request_id, n.story_id, s.heirloom_id,
                    n.read_at::text as read_at, n.created_at::text as created_at
-            from notification n
+            from notification n left join story s on s.id = n.story_id
             where n.recipient_id in (select person_id from member where user_id = $1)
             order by n.read_at nulls first, n.created_at desc
             limit 100

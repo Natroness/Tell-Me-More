@@ -12,12 +12,14 @@ from app.routers import (
     connections,
     families,
     heirlooms,
+    immersive,
     interviews,
     memories,
     notifications,
     profiles,
     requests,
     stories,
+    storytime,
 )
 
 log = logging.getLogger("lorebook")
@@ -54,9 +56,11 @@ for r in (
     connections,
     memories,
     stories,
+    storytime,
     requests,
     notifications,
     profiles,
+    immersive,
 ):
     app.include_router(r.router)
 

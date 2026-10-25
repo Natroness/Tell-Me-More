@@ -94,9 +94,67 @@ class ImageGen(Protocol):
     async def generate(self, prompt: str) -> bytes: ...
 
 
+class TTS(Protocol):
+    async def speak(self, text: str, *, language: Literal["en"] = "en") -> Blob: ...
+
+
+class StockPhoto(BaseModel):
+    url: str
+    width: int
+    height: int
+    photographer: str
+    page_url: str
+    provider: str = "Pixabay"
+    asset_id: str = ""
+    license_url: str = "https://pixabay.com/service/license-summary/"
+
+
+class StockImages(Protocol):
+    async def search(self, query: str, *, orientation: str = "landscape") -> list[StockPhoto]: ...
+
+
 class Search(Protocol):
     async def lens(self, image_url: str) -> list[LensMatch]: ...
 
     async def web(
         self, q: str, engine: Literal["google", "google_news"] = "google"
     ) -> list[SerpResult]: ...
+
+
+class WorldAssets(BaseModel):
+    """A generated walkable world. URLs are the provider's; copy the files before relying on
+    them."""
+
+    world_id: str
+    spz_urls: dict[str, str]  # "100k", "500k", "full_res"
+    pano_url: str | None
+    thumbnail_url: str | None
+    collider_mesh_url: str | None
+    caption: str | None
+    metric_scale_factor: float | None
+    ground_plane_offset: float | None
+
+
+class WorldOp(BaseModel):
+    operation_id: str
+    done: bool
+    error: str | None = None
+    result: WorldAssets | None = None
+
+
+class RateLimited(Exception):
+    """The provider refused the request for now; nothing was started or charged."""
+
+    def __init__(self, retry_after: float) -> None:
+        super().__init__(f"rate limited, retry after {retry_after:.0f} s")
+        self.retry_after = retry_after
+
+
+class WorldGen(Protocol):
+    async def start(self, *, prompt: str, image: Blob | None, display_name: str) -> str:
+        """Starts a world and returns its operation id."""
+        ...
+
+    async def poll(self, operation_id: str) -> WorldOp: ...
+
+    async def fetch(self, url: str) -> bytes: ...

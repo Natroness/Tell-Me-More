@@ -25,6 +25,9 @@ import { Settings } from './routes/Settings'
 import { Shelf } from './routes/Shelf'
 import { Tell } from './routes/Tell'
 
+// The 3D viewer (three + Spark) is its own chunk, fetched only when someone walks a world.
+const worldViewer = async () => ({ Component: (await import('./routes/WorldViewer')).WorldViewer })
+
 const router = createBrowserRouter([
   {
     element: <AuthGate />,
@@ -47,9 +50,11 @@ const router = createBrowserRouter([
       { path: '/h/:heirloomId', element: <Heirloom /> },
       { path: '/interview/:interviewId', element: <Interview /> },
       { path: '/family', element: <Family /> },
+      { path: '/w/:worldId', lazy: worldViewer },
     ],
   },
   { path: '/s/:heirloomId', element: <PublicStory /> },
+  { path: '/s/:heirloomId/w/:worldId', lazy: worldViewer },
 ])
 
 createRoot(document.getElementById('root')!).render(

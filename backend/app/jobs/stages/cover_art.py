@@ -40,7 +40,8 @@ async def run(heirloom_id: UUID) -> None:
             MAX_DETAILS,
         )
         existing = await conn.fetchval(
-            "select id from media where heirloom_id = $1 and kind = 'generated_image'",
+            "select id from media where heirloom_id = $1 and kind = 'generated_image' "
+            "and storage_path not like '%/storytime/%'",
             heirloom_id,
         )
 
