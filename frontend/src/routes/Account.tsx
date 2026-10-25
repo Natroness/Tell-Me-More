@@ -25,6 +25,14 @@ import { describeMe } from '@/lib/relations'
 import { activeTheme, applyTheme, type ThemeChoice } from '@/lib/theme'
 import { useScreenTitle } from '@/lib/useScreenTitle'
 import { AgeStepper, SectionLabel, Segmented } from '@/routes/account/controls'
+import { avatarRole, avatarSrc, supportsAvatars } from '@/lib/avatar'
+import {
+  AvatarChoiceSheet,
+  PhotoCropper,
+  ProfilePictureButton,
+  UploadProgress,
+  useAvatarDraft,
+} from '@/routes/account/ProfilePicture'
 
 const MODES: { id: DisplayMode; label: string }[] = [
   { id: 'regular', label: 'regular' },
@@ -99,7 +107,11 @@ export function Account() {
       <Header title="profile & preferences" back="/" />
 
       <section className="flex items-center gap-4">
-        <Avatar name={name || email} size="lg" />
+        <Avatar
+          name={name || email}
+          size="lg"
+          src={supportsAvatars(profile.data) ? avatarSrc(profile.data) : null}
+        />
         <div className="min-w-0">
           {name && <p className="font-hand text-[2rem] leading-tight break-words">{name}</p>}
           {relation && <p className="font-sans text-[1.2rem] leading-snug break-words">{relation}</p>}
@@ -180,6 +192,9 @@ export function Account() {
 function EditProfile({ profile, onSaved }: { profile: Profile; onSaved: (data: Profile) => void }) {
   const [name, setName] = useState(profile.display_name ?? '')
   const [age, setAge] = useState(profile.age ?? 24)
+  const draft = useAvatarDraft(profile)
+  // Picture controls appear only when the server can persist them.
+  const avatars = supportsAvatars(profile)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null)
 
@@ -191,7 +206,9 @@ function EditProfile({ profile, onSaved }: { profile: Profile; onSaved: (data: P
       return
     }
     setBusy(true)
-    const { data, error } = await api.PATCH('/api/profile', { body: { display_name: name.trim(), age } })
+    const { data, error } = await api.PATCH('/api/profile', {
+      body: { display_name: name.trim(), age, ...(avatars ? { avatar_style: draft.style } : {}) },
+    })
     setBusy(false)
     if (error || !data) {
       setNote({ ok: false, text: formatApiError(error, 'we could not save that. try again.') })
@@ -201,14 +218,68 @@ function EditProfile({ profile, onSaved }: { profile: Profile; onSaved: (data: P
     setNote({ ok: true, text: 'profile saved.' })
   }
 
+  const saving = busy || draft.uploading
+
   return (
     <form onSubmit={submit} className="flex flex-col gap-5 pt-1" noValidate>
+      {avatars && (
+        <div className="flex flex-col items-center gap-2">
+          <ProfilePictureButton
+            src={draft.preview(age)}
+            name={name}
+            onClick={() => draft.setSheetOpen(true)}
+            disabled={draft.uploading}
+          />
+          <p className="font-sans text-[1.1rem] leading-tight text-muted" aria-live="polite">
+            {draft.hasCustom ? 'my photo' : avatarRole(draft.style, age)}
+          </p>
+          {draft.uploading && <UploadProgress value={draft.progress} />}
+          {draft.error && (
+            <Notice tone="error" className="w-full">
+              {draft.error}
+            </Notice>
+          )}
+        </div>
+      )}
       <TextField label="your name" name="name" autoComplete="name" value={name} onChange={setName} />
+      {avatars && (
+        <div className="flex flex-col gap-2">
+          <SectionLabel>i am</SectionLabel>
+          <Segmented
+            label="avatar style"
+            value={draft.style}
+            onChange={draft.setStyle}
+            options={[
+              { id: 'male', label: 'male' },
+              { id: 'female', label: 'female' },
+            ]}
+          />
+        </div>
+      )}
       <AgeStepper value={age} onChange={setAge} />
       {note && <Notice tone={note.ok ? 'success' : 'error'}>{note.text}</Notice>}
-      <Button type="submit" disabled={busy}>
-        {busy ? 'saving…' : 'save'}
+      <Button type="submit" disabled={saving}>
+        {draft.uploading ? 'uploading photo…' : busy ? 'saving…' : 'save'}
       </Button>
+      {avatars && (
+        <>
+          <AvatarChoiceSheet
+            open={draft.sheetOpen}
+            hasCustom={draft.hasCustom}
+            onUpload={draft.chooseFile}
+            onUseIllustrated={draft.useIllustrated}
+            onClose={() => draft.setSheetOpen(false)}
+          />
+          {draft.cropSrc && (
+            <PhotoCropper
+              src={draft.cropSrc}
+              error={draft.error}
+              onConfirm={draft.confirmCrop}
+              onCancel={draft.clearCrop}
+            />
+          )}
+        </>
+      )}
     </form>
   )
 }
