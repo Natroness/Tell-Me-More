@@ -1,6 +1,6 @@
-# Lorebook: System and Low-Level Design
+# Tell Me More: System and Low-Level Design
 
-> Photograph a family object. Let a relative tell its story in their own voice. Lorebook turns that into a living page the whole family can explore, where every sentence links back to who said it.
+> Photograph a family object. Let a relative tell its story in their own voice. Tell Me More turns that into a living page the whole family can explore, where every sentence links back to who said it.
 
 Status: draft v0, HackTX 2026. Owner: team. Things marked **VERIFY** are assumptions to confirm with sponsor staff or docs before we build on them.
 
@@ -10,11 +10,11 @@ Status: draft v0, HackTX 2026. Owner: team. Things marked **VERIFY** are assumpt
 
 We optimize for **one** track and pick up cheap side prizes only where the integration is real.
 
-| Track | Fit | Role in Lorebook | Decision |
+| Track | Fit | Role in Tell Me More | Decision |
 |---|---|---|---|
 | **Meta: Bringing People Closer Together** | Very high | Muse Spark runs the interview, object analysis, and story writing. Muse Voice Transcribe captures the relative's voice. Muse Image makes the cover art. A Muse connector lets people ask Muse about their family stories. | **Primary.** Every design choice is judged against it. |
 | **SerpApi** | High, and real | Google Lens API identifies the object ("1950s Omega Seamaster"). Google Search and News APIs build the "What was the world like back then?" cards for each year and place in the story. | **Secondary.** It powers a feature we want anyway. |
-| MLH .Tech domain | Free | `lorebook.tech` | Yes, costs 10 minutes. |
+| MLH .Tech domain | Free | `Tell Me More.tech` | Yes, costs 10 minutes. |
 | MLH Gemini | Medium | Fallback LLM behind the same provider interface if Muse rate-limits or a modality is missing. | Only if we actually use it in the demo. |
 | MLH Vultr | Low-medium | Host the API server. | Optional, decide at deploy time. |
 | NMC2, Nessie, Toyota, Solana, Tiger, Snowflake | None | Off-theme. | Skip. Bolting these on dilutes the story for Meta judges. |
@@ -125,7 +125,7 @@ The backend never pushes to the browser. It writes rows, and the browser subscri
 | Jobs | **Postgres `job` table + asyncio worker loop** | Claim with `select ... for update skip locked`. Retries up to 3, then `failed`. |
 | LLM client | `openai` Python SDK with `base_url` set to Meta Model API; `google-genai` for Gemini fallback | Same adapter interface for both. |
 | HTTP | `httpx` (SerpApi, ASR batch), `websockets` (ASR realtime if needed) | |
-| Deploy (demo copy) | **Vultr VM**: uvicorn behind Caddy (auto HTTPS on `lorebook.tech`), Caddy also serves the Vite `dist/` build | Single box, single domain, no CORS in production. Counts for MLH Vultr. |
+| Deploy (demo copy) | **Vultr VM**: uvicorn behind Caddy (auto HTTPS on `Tell Me More.tech`), Caddy also serves the Vite `dist/` build | Single box, single domain, no CORS in production. Counts for MLH Vultr. |
 
 ### 3.2.1 Local-first development
 
@@ -143,7 +143,7 @@ We build from laptops first and deploy a demo copy to Vultr around hour 18 to 20
 ### 3.2.2 Repo layout
 
 ```
-lorebook/
+Tell Me More/
 ├── frontend/                 Vite + React + TS
 │   ├── src/
 │   │   ├── routes/           shelf, capture, interview, story, family
@@ -200,7 +200,7 @@ Network gotcha: some venue and campus networks block outbound ports 5432 and 654
 
 ### 4.1 Core idea: provenance on every claim
 
-Every piece of information in Lorebook is a `fact` with a `source`. The story is a list of blocks, and each sentence points at the facts and transcript segments it came from. This one structure gives us the trust story, tap-to-play audio, and the clean split between memory and history.
+Every piece of information in Tell Me More is a `fact` with a `source`. The story is a list of blocks, and each sentence points at the facts and transcript segments it came from. This one structure gives us the trust story, tap-to-play audio, and the clean split between memory and history.
 
 ```python
 # backend/app/models.py. The four kinds of truth, kept apart forever.
@@ -231,7 +231,7 @@ Source = Annotated[
 ]
 ```
 
-UI color per kind: memory = warm amber, observation = slate, history = blue with a link icon, inference = dotted gray and labeled "Lorebook's note".
+UI color per kind: memory = warm amber, observation = slate, history = blue with a link icon, inference = dotted gray and labeled "Tell Me More's note".
 
 ### 4.2 Tables (Postgres)
 
@@ -505,7 +505,7 @@ Policy, written into the prompt: prefer a `follow_up` when the last answer named
 
 1. Parse into `list[StoryBlock]` with Pydantic. Reject on shape errors.
 2. Every `Sentence.cites` is non-empty, and every cited id exists for this heirloom.
-3. A sentence citing only `inference` facts is allowed but must be rendered as "Lorebook's note".
+3. A sentence citing only `inference` facts is allowed but must be rendered as "Tell Me More's note".
 4. Every `quote.segmentId` exists.
 5. Years in the narrative must match a cited fact's `year`.
 
@@ -595,7 +595,7 @@ class Search(Protocol):
 
 ## 6. Muse connector (stretch)
 
-Expose Lorebook as a tool server Muse can call, so the family history becomes part of their everyday AI:
+Expose Tell Me More as a tool server Muse can call, so the family history becomes part of their everyday AI:
 
 | Tool | Input | Output |
 |---|---|---|
@@ -638,6 +638,6 @@ Demo line: "Hey Muse, what did Nani say about her wedding ring?" and Muse answer
 | 8–14 | Interview screen from state machine | Realtime subscriptions, state machine on server | `next_question` + coverage | `era_context` |
 | 14–20 | Story page renderer, citations, audio scrub | End-to-end interview test with a real grandparent call | `extract_facts`, `compose_story`, validator | Family roster, invite link, memory notes, Vultr VM + Caddy deploy |
 | 20–26 | Polish, motion, mobile QA | Realtime captions (if time) | `cover_art`, Muse connector (stretch) | Deck, demo script, record backup story |
-| 26–30 | Bug bash, freeze, rehearse ×3 | | | Devpost write-up, `lorebook.tech` |
+| 26–30 | Bug bash, freeze, rehearse ×3 | | | Devpost write-up, `Tell Me More.tech` |
 
 Freeze features at hour 24. Everything after is polish and rehearsal.
