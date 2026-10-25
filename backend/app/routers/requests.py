@@ -4,6 +4,7 @@ States: pending → in_progress → completed | declined | cancelled.
 Idempotency_key prevents double-tap duplicates (§7).
 """
 
+from typing import Literal
 from uuid import UUID
 
 import asyncpg
@@ -43,9 +44,11 @@ class RequestDetail(StoryRequest):
     capture_url: str | None = None
     listener_name: str | None = None
     storyteller_name: str | None = None
+    # The caller's side, resolved in the request's own family (callers can belong to several).
+    viewer_role: Literal["storyteller", "listener", "member"] = "member"
 
 
-async def _detail(conn: asyncpg.Connection, request_id: UUID) -> RequestDetail:
+async def _detail(conn: asyncpg.Connection, request_id: UUID, viewer_id: UUID) -> RequestDetail:
     r = await conn.fetchrow(
         """
         select r.id, r.heirloom_id, r.capture_media_id, r.listener_id, r.storyteller_id,
@@ -88,6 +91,11 @@ async def _detail(conn: asyncpg.Connection, request_id: UUID) -> RequestDetail:
         capture_url=cap_url,
         listener_name=r["listener_name"],
         storyteller_name=r["storyteller_name"],
+        viewer_role="storyteller"
+        if viewer_id == r["storyteller_id"]
+        else "listener"
+        if viewer_id == r["listener_id"]
+        else "member",
     )
 
 
@@ -135,7 +143,7 @@ async def create_request(body: CreateRequest, user: CurrentUser) -> RequestDetai
                     recipient_id=existing["storyteller_id"],
                     request_id=existing["id"],
                 )
-                return await _detail(conn, existing["id"])
+                return await _detail(conn, existing["id"], listener_id)
         async with conn.transaction():
             row = await conn.fetchrow(
                 "insert into story_request "
@@ -155,7 +163,7 @@ async def create_request(body: CreateRequest, user: CurrentUser) -> RequestDetai
                 recipient_id=body.storyteller_id,
                 request_id=row["id"],
             )
-        return await _detail(conn, row["id"])
+        return await _detail(conn, row["id"], listener_id)
 
 
 @router.get("")
@@ -195,8 +203,8 @@ async def get_request(request_id: UUID, user: CurrentUser) -> RequestDetail:
         r = await conn.fetchrow("select heirloom_id from story_request where id = $1", request_id)
         if r is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "request not found")
-        await require_member(conn, user, await family_of_heirloom(conn, r["heirloom_id"]))
-        return await _detail(conn, request_id)
+        me = await require_member(conn, user, await family_of_heirloom(conn, r["heirloom_id"]))
+        return await _detail(conn, request_id, me)
 
 
 def _check_actor(listener_id: UUID, storyteller_id: UUID, me: UUID, who: str) -> None:

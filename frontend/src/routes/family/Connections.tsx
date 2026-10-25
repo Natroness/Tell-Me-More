@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Search } from 'lucide-react'
+import { Link } from 'react-router'
 import { Avatar, Card, Chip, Disclosure, ErrorState, FormError, Loading, Notice } from '@/components/ui/chrome'
 import { api, type Schemas } from '@/lib/api'
 import { formatApiError } from '@/lib/apiError'
@@ -21,7 +22,7 @@ function stories(n: number) {
 }
 
 /** Family and friends who have their own accounts: requests, answers, and who you are connected to. */
-export function Connections() {
+export function Connections({ anchorPersonId }: { anchorPersonId?: string | null }) {
   const qc = useQueryClient()
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -114,6 +115,9 @@ export function Connections() {
                 <span className="block font-sans text-[1rem] text-muted">{stories(c.story_count)}</span>
               </span>
               <Chip>{c.kind}</Chip>
+              {anchorPersonId && <Link
+                to={`/family/invite/${anchorPersonId}?connection=${encodeURIComponent(c.user_id)}`}
+                className={`${pill} shrink-0`} aria-label={`add ${c.display_name} to the tree`}>add to tree</Link>}
             </li>
           ))}
         </ul>

@@ -59,7 +59,7 @@ export function SendRequest({
         </div>
         <ArrowRight className="size-7 shrink-0" strokeWidth={2.2} aria-hidden />
         <div className="flex min-w-0 flex-col items-center gap-1.5">
-          <Avatar name={person.display_name} size="lg" />
+          <Avatar name={person.display_name} src={person.avatar_url} size="lg" />
           <span className="text-center font-sans text-[1.1rem] leading-tight break-words">{person.display_name}</span>
         </div>
       </Card>

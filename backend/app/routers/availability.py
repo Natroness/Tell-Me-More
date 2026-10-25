@@ -13,6 +13,7 @@ from fastapi import APIRouter, HTTPException, Response, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.auth import CurrentUser, require_member
+from app.avatars import AVATAR_COLUMNS, avatar_url
 from app.db import pool
 
 router = APIRouter(prefix="/api", tags=["family-availability"])
@@ -157,6 +158,7 @@ class BusyPeriod(BusyPeriodValues):
 class FamilyAvailability(BaseModel):
     person_id: UUID
     display_name: str
+    avatar_url: str | None = None
     status: AvailabilityStatus
     last_updated_at: datetime
 
@@ -477,9 +479,10 @@ async def list_family_availability(
     async with pool().acquire() as conn:
         await require_member(conn, user, family_id)
         members = await conn.fetch(
-            """
-            select m.user_id, m.person_id, p.display_name
+            f"""
+            select m.user_id, m.person_id, p.display_name, {AVATAR_COLUMNS}
             from member m join person p on p.id = m.person_id
+            left join profile pr on pr.user_id = m.user_id
             where m.family_id = $1 and m.person_id is not null
             order by lower(p.display_name), p.id
             limit $2 offset $3
@@ -514,6 +517,7 @@ async def list_family_availability(
         FamilyAvailability(
             person_id=member["person_id"],
             display_name=member["display_name"],
+            avatar_url=avatar_url(member),
             status=_derive_status(
                 settings_by_user.get(member["user_id"]),
                 entries_by_user[member["user_id"]],

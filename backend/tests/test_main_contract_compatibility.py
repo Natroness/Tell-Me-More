@@ -160,6 +160,23 @@ async def test_request_inbox_spans_families_for_participating_current_members(co
     assert [item.id for item in await requests.list_requests(user)] == [second_sent]
 
 
+async def test_request_detail_names_viewer_role_in_the_request_family(conn, seed, monkeypatch):
+    async def signed_url(bucket, path):
+        return f"https://storage.test/{bucket}/{path}"
+
+    monkeypatch.setattr(requests, "signed_download_url", signed_url)
+    # The storyteller's first family is not the request's family; the role must still resolve.
+    teller, teller_person = await _member(conn, seed.family_id, "Jimmy")
+    await families.create_family(CreateFamily(name="Jimmy home", your_name="Jimmy"), teller)
+    assert (await families.list_families(teller))[0].id != seed.family_id
+    bystander, _ = await _member(conn, seed.family_id, "Bystander")
+    request_id = await _request(conn, seed.heirloom_id, seed.narrator_id, teller_person)
+
+    assert (await requests.get_request(request_id, teller)).viewer_role == "storyteller"
+    assert (await requests.get_request(request_id, User(seed.user_id))).viewer_role == "listener"
+    assert (await requests.get_request(request_id, bystander)).viewer_role == "member"
+
+
 def test_request_family_filter_is_optional_in_the_api_contract():
     api = FastAPI()
     api.include_router(requests.router)

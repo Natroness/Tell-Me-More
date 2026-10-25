@@ -15,7 +15,7 @@ export function ReviewMemory() {
   useScreenTitle('review memory')
   const { memoryId } = useParams() as { memoryId: string }
   const memory = useMemory(memoryId)
-  if (memory.isLoading) return <ScreenBody><Loading /></ScreenBody>
+  if (memory.isLoading) return <ScreenBody><Header title="review memory" back="/memories" /><Loading /></ScreenBody>
   if (memory.isError || !memory.data)
     return (
       <ScreenBody>

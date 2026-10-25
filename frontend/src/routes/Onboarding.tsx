@@ -19,7 +19,7 @@ import { useDisplayMode } from '@/lib/displayMode'
 import { getPreferredLanguage, setPreferredLanguage, type LanguageId } from '@/lib/language'
 import { clearDisplayName, nameForProfile } from '@/lib/pendingProfile'
 import { profileKey, useProfile } from '@/lib/profile'
-import { avatarRole, supportsAvatars } from '@/lib/avatar'
+import { supportsAvatars } from '@/lib/avatar'
 import { AgeStepper, SectionLabel, Segmented } from '@/routes/account/controls'
 import {
   AvatarChoiceSheet,
@@ -59,7 +59,7 @@ export function Onboarding() {
     const { data, error: apiError } = await api.PATCH('/api/profile', {
       body: {
         age,
-        ...(avatars ? { avatar_style: draft.style } : {}),
+        ...(avatars ? { avatar_style: draft.style, avatar_preset: draft.preset } : {}),
         preferred_language: language,
         ...(name ? { display_name: name } : {}),
       },
@@ -108,7 +108,7 @@ export function Onboarding() {
         {name && <p className="font-sans text-[1.35rem] leading-tight break-words">{name}</p>}
         {avatars && (
           <p className="font-sans text-[1.1rem] leading-tight text-muted" aria-live="polite">
-            {draft.hasCustom ? 'my photo' : avatarRole(draft.style, age)}
+            {draft.role(age)}
           </p>
         )}
         {avatars && draft.uploading && (
@@ -158,7 +158,9 @@ export function Onboarding() {
           <AvatarChoiceSheet
             open={draft.sheetOpen}
             hasCustom={draft.hasCustom}
+            preset={draft.preset}
             onUpload={draft.chooseFile}
+            onPickPreset={draft.pickPreset}
             onUseIllustrated={draft.useIllustrated}
             onClose={() => draft.setSheetOpen(false)}
           />

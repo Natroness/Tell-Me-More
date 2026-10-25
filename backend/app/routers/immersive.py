@@ -54,10 +54,11 @@ class ResolvedSpot(BaseModel):
 
 
 class ReferenceCredit(BaseModel):
-    """The real photo of the place the world was built on, and where it was published."""
+    """Distinguish public scene photos from generated interpretations of the setting."""
 
     title: str
-    page_url: str
+    page_url: str | None = None
+    kind: Literal["web", "generated"] = "web"
 
 
 class ImmersiveWorld(BaseModel):
@@ -284,7 +285,13 @@ async def _resolve(conn: asyncpg.Connection, w: asyncpg.Record) -> ImmersiveWorl
             )
             for s in spots
         ],
-        reference=ReferenceCredit(title=ref.title, page_url=ref.page_url) if ref else None,
+        reference=ReferenceCredit(
+            title=ref.title,
+            page_url=ref.page_url,
+            kind="generated" if ref.via == "generated" else "web",
+        )
+        if ref
+        else None,
     )
 
 

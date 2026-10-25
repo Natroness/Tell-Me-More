@@ -52,14 +52,14 @@ class WorldLabsWorldGen:
 
     async def start(self, *, prompt: str, image: Blob | None, display_name: str) -> str:
         if image is None:
-            world_prompt: dict[str, Any] = {"type": "text", "text_prompt": prompt}
-        else:
-            asset_id = await self._upload(image)
-            world_prompt = {
-                "type": "image",
-                "image_prompt": {"source": "media_asset", "media_asset_id": asset_id},
-                "text_prompt": prompt,
-            }
+            raise ValueError("A scene reference image is required before building a world")
+        asset_id = await self._upload(image)
+        world_prompt: dict[str, Any] = {
+            "type": "image",
+            "image_prompt": {"source": "media_asset", "media_asset_id": asset_id},
+            "text_prompt": prompt,
+            "is_pano": False,
+        }
         op = await self._call(
             "POST",
             "/worlds:generate",

@@ -6,8 +6,12 @@ import { useScreenTitle } from '@/lib/useScreenTitle'
 import { IconField } from '@/components/ui/fields'
 import { friendlyAuthError, missingSupabaseConfig } from '@/lib/apiError'
 import { useAuth } from '@/lib/auth'
+import { sendSignUpLink } from '@/lib/magicLink'
 import { readDisplayName, stashDisplayName } from '@/lib/pendingProfile'
 import { supabase, supabaseConfigured } from '@/lib/supabase'
+import { DevLoginSection } from '@/components/DevLogin'
+
+type Mode = 'password' | 'magic'
 
 export function SignUp() {
   useScreenTitle('create account')
@@ -18,9 +22,18 @@ export function SignUp() {
   const [name, setName] = useState(() => readDisplayName())
   const [email, setEmail] = useState(session?.user.email ?? '')
   const [password, setPassword] = useState('')
+  const [mode, setMode] = useState<Mode>('password')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [checkEmail, setCheckEmail] = useState(false)
+
+  // Editing an existing session is name-only; no passwordless toggle there.
+  const showMagicToggle = !editing && !session
+
+  function switchMode(next: Mode) {
+    setMode(next)
+    setError(null)
+  }
 
   async function submit(e: FormEvent) {
     e.preventDefault()
@@ -32,6 +45,26 @@ export function SignUp() {
     }
     if (!session && !email.includes('@')) {
       setError('add a valid email.')
+      return
+    }
+    if (mode === 'magic') {
+      if (!supabaseConfigured) {
+        setError(missingSupabaseConfig)
+        return
+      }
+      stashDisplayName(displayName)
+      if (session) {
+        navigate('/onboarding')
+        return
+      }
+      setBusy(true)
+      const failure = await sendSignUpLink(email, displayName)
+      setBusy(false)
+      if (failure) {
+        setError(friendlyAuthError(failure))
+        return
+      }
+      setCheckEmail(true)
       return
     }
     if (!session && password.length < 6) {
@@ -77,7 +110,9 @@ export function SignUp() {
       <PaperScreen screen="check-email">
         <Header back="/welcome" title="check your email" />
         <p className="mt-6 text-center font-['Patrick_Hand',cursive] text-[1.4rem] leading-snug">
-          we sent a link to {email.trim()}. open it, then sign in to finish making it yours.
+          {mode === 'magic'
+            ? `we sent a sign-in link to ${email.trim()}. open it on this device to finish making it yours.`
+            : `we sent a link to ${email.trim()}. open it, then sign in to finish making it yours.`}
         </p>
         <InviteNote className="mt-4 border-[#FFD43B]" />
         <Link to="/sign-in" className={`${paperButton} mt-10 bg-[#FFD43B]`}>
@@ -91,6 +126,7 @@ export function SignUp() {
     <PaperScreen screen="sign-up">
       <Header back={editing ? '/onboarding' : '/welcome'} title="create account" />
       <InviteNote className="mt-6 border-[#FFD43B]" />
+      {!editing && <DevLoginSection defaultEmail={email} />}
       <form onSubmit={submit} className="mt-8 flex flex-col gap-5" noValidate>
         <IconField label="your name" icon={User} name="name" autoComplete="name" value={name} onChange={setName} />
         <IconField
@@ -103,7 +139,7 @@ export function SignUp() {
           onChange={setEmail}
           readOnly={editing}
         />
-        {!editing && (
+        {!editing && mode === 'password' && (
           <IconField
             label="password"
             icon={Lock}
@@ -117,8 +153,29 @@ export function SignUp() {
         <div className="mt-6 flex flex-col gap-3">
           <FormError>{error}</FormError>
           <button type="submit" disabled={busy} className={`${paperButton} bg-[#FFD43B]`}>
-            {busy ? 'please wait…' : 'continue →'}
+            {busy ? 'please wait…' : mode === 'magic' ? 'email me a link →' : 'continue →'}
           </button>
+          {showMagicToggle &&
+            (mode === 'password' ? (
+              <>
+                <div className="flex items-center gap-3 py-1" aria-hidden>
+                  <span className="h-px flex-1 bg-black/20" />
+                  <span className="font-['Patrick_Hand',cursive] text-[1.2rem] text-black/60">or</span>
+                  <span className="h-px flex-1 bg-black/20" />
+                </div>
+                <button type="button" onClick={() => switchMode('magic')} className={`${paperButton} bg-[#fff]`}>
+                  get a magic link instead
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => switchMode('password')}
+                className="block py-2 text-center font-['Patrick_Hand',cursive] text-[1.5rem] leading-none underline-offset-4 hover:underline"
+              >
+                use a password instead
+              </button>
+            ))}
         </div>
       </form>
     </PaperScreen>

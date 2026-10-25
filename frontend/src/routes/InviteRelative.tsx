@@ -1,6 +1,6 @@
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useId, useState, type FormEvent } from 'react'
-import { useParams } from 'react-router'
+import { useNavigate, useParams, useSearchParams } from 'react-router'
 import { Copy } from 'lucide-react'
 import {
   Avatar,
@@ -25,10 +25,37 @@ import { useScreenTitle } from '@/lib/useScreenTitle'
 export function InviteRelative() {
   useScreenTitle('invite a relative')
   const { personId } = useParams()
+  const navigate = useNavigate()
+  const [search] = useSearchParams()
   const qc = useQueryClient()
   const family = useFamily()
   const tree = useFamilyTree(family.data?.id)
-  const [kind, setKind] = useState<InviteKind>('parent')
+  const [draftKind, setKind] = useState<InviteKind | null>(null)
+  const [method, setMethod] = useState<'connected' | 'email'>('connected')
+  const [selectedUser, setSelectedUser] = useState(search.get('connection') ?? '')
+  const connections = useQuery({
+    queryKey: ['tree-connections', family.data?.id],
+    enabled: !!family.data?.id,
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/families/{family_id}/tree/connections', {
+        params: { path: { family_id: family.data!.id } },
+      })
+      if (error || !data) throw new Error(formatApiError(error, 'we could not load your connections.'))
+      return data
+    },
+  })
+  const chosen = connections.data?.find((c) => c.user_id === selectedUser)
+  const existing = tree.data?.relationships.find((e) =>
+    (e.a === chosen?.person_id && e.b === personId) || (e.b === chosen?.person_id && e.a === personId))
+  const savedRole = existing && (chosen?.person_id === existing.a ? existing.a_role : existing.b_role)
+  const aliases: Record<string, InviteKind> = { dad: 'father', mom: 'mother', grandpa: 'grandfather', grandma: 'grandmother', partner: 'spouse' }
+  const savedKind = savedRole && (aliases[savedRole] ?? INVITE_KINDS.find((r) => r.id === savedRole)?.id)
+  const fallback: InviteKind = existing?.kind === 'parent'
+    ? chosen?.person_id === existing.a ? 'parent' : 'child'
+    : existing?.kind === 'grandparent' ? chosen?.person_id === existing.a ? 'grandparent' : 'grandchild'
+    : existing?.kind === 'spouse' ? 'spouse' : existing?.kind === 'sibling' ? 'sibling'
+    : chosen?.kind === 'friend' ? 'friend' : 'parent'
+  const kind = draftKind ?? (method === 'connected' ? savedKind || fallback : 'parent')
   const [email, setEmail] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -74,6 +101,27 @@ export function InviteRelative() {
   async function submit(e: FormEvent) {
     e.preventDefault()
     setError(null)
+    if (method === 'connected') {
+      if (!chosen?.person_id) {
+        setError('choose a connected person who has joined this family.')
+        return
+      }
+      setBusy(true)
+      try {
+        const { error: apiError } = await api.POST('/api/families/{family_id}/tree/connections', {
+          params: { path: { family_id: familyId } },
+          body: { user_id: chosen.user_id, anchor_person_id: anchor!.id, kind },
+        })
+        if (apiError) throw new Error(formatApiError(apiError, 'we could not add them to the tree.'))
+        await qc.invalidateQueries({ queryKey: ['tree', familyId] })
+        navigate('/family')
+      } catch (error) {
+        setError(error instanceof Error ? error.message : 'we could not add them to the tree.')
+      } finally {
+        setBusy(false)
+      }
+      return
+    }
     if (!email.includes('@')) {
       setError('add their email address.')
       return
@@ -131,17 +179,45 @@ export function InviteRelative() {
     <ScreenBody screen="invite-relative">
       <Header title={`add ${owner} ${kindLabel(kind)}`} back="/family" />
       <div className="flex flex-col items-center gap-2">
-        <Avatar name={anchor.display_name} size="lg" highlight={anchorIsYou} />
+        <Avatar name={anchor.display_name} src={anchor.avatar_url} size="lg" highlight={anchorIsYou} />
         <p className="text-center font-sans text-[1.3rem] leading-tight break-words">
           {anchorIsYou ? `you (${anchor.display_name})` : anchor.display_name}
         </p>
       </div>
       <form onSubmit={submit} className="mt-6 flex flex-1 flex-col gap-5" noValidate>
+        <div className="flex flex-wrap gap-2" aria-label="how to add someone">
+          <Button tone={method === 'connected' ? 'primary' : 'secondary'} onClick={() => { setMethod('connected'); setError(null) }}>
+            your connections
+          </Button>
+          <Button tone={method === 'email' ? 'primary' : 'secondary'} onClick={() => { setMethod('email'); setError(null) }}>
+            invite by email
+          </Button>
+        </div>
+        {method === 'connected' && <div className="flex flex-col gap-2">
+          {connections.isLoading && <Loading label="loading connections…" />}
+          {connections.isError && <ErrorState message={connections.error.message} onRetry={() => connections.refetch()} />}
+          <label className="flex flex-col gap-1.5 font-sans text-[1.35rem]">
+            connected person
+            <select value={selectedUser} onChange={(e) => { setSelectedUser(e.target.value); setKind(null) }}
+              className="hand-box h-14 w-full min-w-0 border-[1.5px] border-ink/40 bg-paper px-4 text-[1.2rem]">
+              <option value="">choose someone</option>
+              {(connections.data ?? []).map((c) => {
+                const linked = tree.data!.relationships.some((e) =>
+                  (e.a === c.person_id && e.b === anchor!.id) || (e.b === c.person_id && e.a === anchor!.id))
+                return <option key={c.user_id} value={c.user_id} disabled={!c.person_id || c.person_id === anchor!.id}>
+                  {c.display_name}{linked ? ' · already in tree' : !c.person_id ? ' · invitation needed' : ''}
+                </option>
+              })}
+            </select>
+          </label>
+          {connections.data?.length === 0 && <p className="text-muted">no connections yet. connect from the family tree, or share an invitation.</p>}
+        </div>}
         <RelationshipSelect value={kind} onChange={setKind} />
         <p className="font-sans text-[1.1rem] leading-snug text-muted" data-testid="invite-direction">
-          the person you invite joins as <strong className="font-normal text-ink">{phrase}</strong>.
+          {method === 'connected' ? 'they will appear as ' : 'the person you invite joins as '}
+          <strong className="font-normal text-ink">{phrase}</strong>.
         </p>
-        <TextField
+        {method === 'email' && <TextField
           label="their email address"
           name="email"
           type="email"
@@ -149,14 +225,14 @@ export function InviteRelative() {
           autoComplete="off"
           value={email}
           onChange={setEmail}
-        />
+        />}
         <div className="mt-auto flex flex-col gap-3 pt-4">
           <FormError>{error}</FormError>
           <Button type="submit" disabled={busy}>
-            {busy ? 'sending…' : 'send invitation →'}
+            {busy ? 'saving…' : method === 'connected' ? 'add to the tree →' : 'send invitation →'}
           </Button>
           <p className="text-center font-sans text-[1.05rem] leading-snug text-muted">
-            you get a link to share. no email is sent.
+            {method === 'connected' ? 'uses their existing person in this family. no invitation is needed.' : 'you get a link to share. no email is sent.'}
           </p>
         </div>
       </form>

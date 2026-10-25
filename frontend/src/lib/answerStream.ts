@@ -1,3 +1,4 @@
+import { readDevSession } from './devAuth'
 import { supabase } from './supabase'
 
 const END_TIMEOUT_MS = 12_000
@@ -55,8 +56,9 @@ export function openAnswerStream(
   ws.onopen = async () => {
     try {
       const { data } = await supabase.auth.getSession()
+      const token = data.session?.access_token ?? readDevSession()?.access_token
       if (failed || done || ws.readyState !== WebSocket.OPEN) return
-      ws.send(JSON.stringify({ type: 'start', token: data.session?.access_token }))
+      ws.send(JSON.stringify({ type: 'start', token }))
       pending.splice(0).forEach((frame) => ws.send(frame))
       started = true
     } catch {

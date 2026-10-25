@@ -12,6 +12,7 @@ No hosted database or real migration history is modified.
 
 import asyncio
 import json
+import re
 import tempfile
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -133,9 +134,9 @@ async def assert_final_schema(conn: asyncpg.Connection) -> None:
     )
     for value in ("generated_image", "generated_video", "generated_audio"):
         assert f"'{value}'" in media_check, value
-    assert not await conn.fetchval("select exists(select 1 from storage.buckets where public)"), (
-        "all media buckets must remain private"
-    )
+    assert not await conn.fetchval(
+        "select exists(select 1 from storage.buckets where public and id <> 'avatars')"
+    ), "story and generated-media buckets must remain private"
 
 
 async def fresh_install(uri: str) -> None:
@@ -448,6 +449,22 @@ async def upgrade_hosted_baseline(uri: str) -> None:
         constraints_after, policies_after, grants_after = await protected_catalog(conn)
         # Memories adds media FKs; every pre-existing media constraint must remain.
         for constraint in catalog_before[0]:
+            extensions = {
+                "immersive_world_input_mode_check": "reference",
+                "immersive_world_status_check": "finding_reference",
+            }
+            if constraint["relname"] == "immersive_world" and constraint["conname"] in extensions:
+                # The already-merged reference-photo migration deliberately extends these
+                # enums. Require precisely that extension, preserving every former value.
+                updated = next(
+                    c
+                    for c in constraints_after
+                    if c["relname"] == "immersive_world" and c["conname"] == constraint["conname"]
+                )
+                old_values = set(re.findall(r"'([^']+)'::text", constraint["definition"]))
+                new_values = set(re.findall(r"'([^']+)'::text", updated["definition"]))
+                assert new_values == old_values | {extensions[constraint["conname"]]}
+                continue
             assert constraint in constraints_after, constraint
         assert catalog_before[1] == policies_after, "protected RLS changed"
         assert catalog_before[2] == grants_after, "protected grants changed"

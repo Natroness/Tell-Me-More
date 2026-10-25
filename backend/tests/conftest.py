@@ -108,10 +108,11 @@ PNG = b"\x89PNG\r\n\x1a\nfake-cover"
 @dataclass
 class FakeImage:
     prompts: list[str] = field(default_factory=list)
+    data: bytes = PNG
 
     async def generate(self, prompt):
         self.prompts.append(prompt)
-        return PNG
+        return self.data
 
 
 @dataclass
@@ -122,6 +123,11 @@ class FakeTTS:
         assert language == "en"
         self.calls.append(text)
         return Blob(data=make_wav(1), mime="audio/wav")
+
+    async def stream(self, text, *, style):
+        self.calls.append(text)
+        for chunk in (b"\x01\x00", b"\x02\x00"):
+            yield chunk
 
 
 @dataclass

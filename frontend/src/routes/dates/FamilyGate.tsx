@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { Button, EmptyState, ErrorState, Loading } from '@/components/ui/chrome'
 import { useFamily } from '@/lib/family'
+import { useLiveQueries } from '@/lib/realtime'
 
 /** Renders children once the signed-in user's family is known. */
 export function FamilyGate({ children }: { children: (familyId: string) => ReactNode }) {
@@ -21,5 +22,16 @@ export function FamilyGate({ children }: { children: (familyId: string) => React
       </EmptyState>
     )
   }
-  return <>{children(family.data.id)}</>
+  return (
+    <>
+      <LiveDates familyId={family.data.id} />
+      {children(family.data.id)}
+    </>
+  )
+}
+
+/** A date any relative adds, edits or deletes shows up on the calendar and timeline. */
+function LiveDates({ familyId }: { familyId: string }) {
+  useLiveQueries('family_event', `family_id=eq.${familyId}`, [['events', familyId], ['timeline', familyId], ['event']])
+  return null
 }

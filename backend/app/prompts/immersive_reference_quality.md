@@ -1,0 +1,3 @@
+Check whether this generated image is a suitable visual reference for reconstructing the intended setting as a walkable 3D world.
+Return usable=true only for one coherent, sharp, wide room or landscape at approximately eye level with visible floor/ground, consistent scale and perspective, and open paths. It must match the intended indoor/outdoor setting. Reject close-ups of objects, prominent foreground products, faces/people as subjects, collages, diagrams, flat walls without depth, warped architecture, watermarks and prominent lettering.
+This is an imagined illustration, not evidence of the family's actual location. Do not demand a particular real venue when the scene does not identify one. Explain any rejection briefly so a second image can be corrected.

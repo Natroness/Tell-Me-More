@@ -22,7 +22,13 @@ class SerpApi:
     async def _fetch(self, params: dict[str, str]) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=90) as http:
             r = await http.get(_URL, params={**params, "api_key": self._key})
-        return r.raise_for_status().json()
+        if r.is_error:
+            # API keys are query parameters; HTTPStatusError would print the complete URL.
+            raise RuntimeError(f"Image/search request failed (HTTP {r.status_code})")
+        data = r.json()
+        if data.get("error"):
+            raise RuntimeError("Search provider returned an error")
+        return data
 
     async def _search(self, params: dict[str, str]) -> dict[str, Any]:
         if not self._cache:
@@ -34,7 +40,8 @@ class SerpApi:
             )
             if cached is not None:
                 return cached
-            data = await self._fetch(params)
+        data = await self._fetch(params)
+        async with pool().acquire() as conn:
             await conn.execute(
                 "insert into serp_cache (key, params, response) values ($1, $2, $3) "
                 "on conflict (key) do nothing",

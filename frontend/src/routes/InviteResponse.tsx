@@ -186,8 +186,11 @@ export function InviteResponse() {
 
 /** What the anchor is to the recipient, given what the recipient is to the anchor. */
 function reverse(kind: Schemas['Invite']['kind']) {
-  if (kind === 'parent') return 'child'
-  if (kind === 'child') return 'parent'
+  if (['parent', 'father', 'mother'].includes(kind)) return 'child'
+  if (['child', 'son', 'daughter'].includes(kind)) return 'parent'
+  if (['grandparent', 'grandfather', 'grandmother'].includes(kind)) return 'grandchild'
+  if (['grandchild', 'grandson', 'granddaughter'].includes(kind)) return 'grandparent'
+  if (['brother', 'sister'].includes(kind)) return 'sibling'
   return kindLabel(kind)
 }
 

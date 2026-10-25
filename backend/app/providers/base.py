@@ -97,6 +97,10 @@ class ImageGen(Protocol):
 class TTS(Protocol):
     async def speak(self, text: str, *, language: Literal["en"] = "en") -> Blob: ...
 
+    def stream(self, text: str, *, style: str) -> AsyncIterator[bytes]:
+        """Raw 16-bit mono PCM chunks, as soon as each is made."""
+        ...
+
 
 class StockPhoto(BaseModel):
     url: str

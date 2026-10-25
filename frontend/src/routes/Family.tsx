@@ -20,9 +20,10 @@ import { api, type Schemas } from '@/lib/api'
 import { formatApiError } from '@/lib/apiError'
 import { useAuth } from '@/lib/auth'
 import { copyText, inviteLink } from '@/lib/clipboard'
-import { useFamily, useFamilyInvites, useFamilyTree } from '@/lib/family'
+import { useChooseFamily, useFamilies, useFamily, useFamilyInvites, useFamilyTree } from '@/lib/family'
 import { useProfile } from '@/lib/profile'
-import { kindLabel, possessive, relationTo } from '@/lib/relations'
+import { useLiveQuery } from '@/lib/realtime'
+import { possessive, relationTo, treeRelation } from '@/lib/relations'
 import { layoutTree } from '@/lib/treeLayout'
 import { useScreenTitle } from '@/lib/useScreenTitle'
 import { cn } from '@/lib/utils'
@@ -108,17 +109,7 @@ function CreateFamily() {
 }
 
 function relationToMe(tree: Tree, id: string): string | null {
-  const me = tree.me
-  if (!me || id === me) return null
-  for (const e of tree.relationships) {
-    if (e.kind === 'parent') {
-      if (e.a === id && e.b === me) return `your ${kindLabel('parent')}`
-      if (e.a === me && e.b === id) return `your ${kindLabel('child')}`
-    } else if ((e.a === id && e.b === me) || (e.a === me && e.b === id)) {
-      return `your ${kindLabel(e.kind === 'spouse' ? 'spouse' : 'sibling')}`
-    }
-  }
-  return null
+  return !tree.me || id === tree.me ? null : `your ${treeRelation(tree, id)}`
 }
 
 function FamilyTreeScreen({ family }: { family: Family }) {
@@ -131,17 +122,27 @@ function FamilyTreeScreen({ family }: { family: Family }) {
   const pending = invites.data?.filter((i) => i.status === 'pending') ?? []
   const declined = invites.data?.filter((i) => i.status === 'declined') ?? []
   const me = tree.data?.me ?? null
+  const avatars = useMemo(() => new Map(tree.data?.people.map((p) => [p.id, p.avatar_url ?? null])), [tree.data])
+  // Anyone in the family adding a relative shows up here without a reload.
+  const treeKey = ['tree', family.id]
+  useLiveQuery('person', `family_id=eq.${family.id}`, treeKey)
+  useLiveQuery('relationship', `family_id=eq.${family.id}`, treeKey)
+  useLiveQuery('member', `family_id=eq.${family.id}`, treeKey)
 
   return (
     <ScreenBody screen="family-tree">
       <Header title="family tree" back="/" />
       <p className="-mt-3 mb-4 text-center font-sans text-[1.15rem] leading-snug break-words text-muted">{family.name}</p>
+      <FamilySwitcher current={family} />
 
       {tree.isLoading && <Loading label="loading your tree…" />}
       {tree.isError && <ErrorState message={tree.error.message} onRetry={() => tree.refetch()} />}
       {tree.data && layout && (
-        <FamilyTreeView layout={layout} meId={me} selectedId={selectedId} onSelect={setPicked} />
+        <FamilyTreeView layout={layout} meId={me} selectedId={selectedId} onSelect={setPicked} avatars={avatars} />
       )}
+      {me && <Button className="mt-4" tone="secondary" to={`/family/invite/${me}`}>add someone to the tree →</Button>}
+      {layout?.connectors.some((c) => c.friend) &&
+        <p className="mt-3 text-center font-sans text-[1rem] text-muted">solid links are family · dotted links are friends</p>}
 
       {layout && layout.unplaced.length > 0 && (
         <section className="mt-6">
@@ -199,8 +200,30 @@ function FamilyTreeScreen({ family }: { family: Family }) {
         )}
       </section>
 
-      <Connections />
+      <Connections anchorPersonId={me} />
     </ScreenBody>
+  )
+}
+
+/** Families you belong to besides this one. Choosing one changes what every screen shows. */
+function FamilySwitcher({ current }: { current: Family }) {
+  const families = useFamilies()
+  const choose = useChooseFamily()
+  const others = families.data?.filter((f) => f.id !== current.id) ?? []
+  if (others.length === 0) return null
+  return (
+    <Disclosure summary={`switch family (${others.length + 1} families)`} className="mb-4">
+      <ul className="flex flex-col gap-2">
+        {others.map((f) => (
+          <li key={f.id}>
+            <Button tone="secondary" disabled={choose.isPending} onClick={() => choose.mutate(f.id)}>
+              {f.name}
+            </Button>
+          </li>
+        ))}
+      </ul>
+      <FormError>{choose.error?.message}</FormError>
+    </Disclosure>
   )
 }
 
@@ -221,7 +244,7 @@ function PersonDetails({
     <Card className="mt-6">
       <section className="flex flex-col gap-3" aria-label={`${person.display_name} details`}>
         <div className="flex items-center gap-3">
-          <Avatar name={person.display_name} highlight={isMe} />
+          <Avatar name={person.display_name} src={person.avatar_url} highlight={isMe} />
           <div className="min-w-0">
             <p className="font-hand text-[1.9rem] leading-tight break-words">{isMe ? 'you' : person.display_name}</p>
             <p className="font-sans text-[1.15rem] leading-snug break-words">

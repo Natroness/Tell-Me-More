@@ -17,7 +17,7 @@ export function MemoryDetail() {
   const tree = useFamilyTree(memory.data?.family_id)
   const m = memory.data
 
-  if (memory.isLoading) return <ScreenBody><Loading /></ScreenBody>
+  if (memory.isLoading) return <ScreenBody><Header title="memory" back="/memories" /><Loading /></ScreenBody>
   if (memory.isError || !m)
     return (
       <ScreenBody>

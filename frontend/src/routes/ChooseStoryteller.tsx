@@ -93,7 +93,7 @@ export function ChooseStoryteller() {
                   selected === p.id ? 'border-ink bg-sun text-black' : 'border-transparent',
                 )}
               >
-                <Avatar name={p.display_name} size="lg" highlight={selected === p.id} />
+                <Avatar name={p.display_name} src={p.avatar_url} size="lg" highlight={selected === p.id} />
                 <span className="w-full text-center font-sans text-[1.25rem] leading-tight break-words">
                   {p.display_name}
                 </span>

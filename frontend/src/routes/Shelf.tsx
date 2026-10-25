@@ -40,7 +40,13 @@ export function Shelf() {
     },
   })
 
-  if (family.isLoading) return <ScreenBody><Loading /></ScreenBody>
+  if (family.isLoading)
+    return (
+      <ScreenBody>
+        <Header title="object stories" back="/" />
+        <Loading />
+      </ScreenBody>
+    )
   if (family.isError)
     return (
       <ScreenBody>

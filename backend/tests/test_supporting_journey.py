@@ -71,7 +71,12 @@ async def test_complete_supporting_journey_and_access_revocation(conn, fakes, mo
     assert accepted.person_id is not None
     tree = await families.get_tree(family.id, relative)
     assert {person.display_name for person in tree.people} == {"Owner person", "journey-relative"}
-    assert await visible(conn, relative.id, "select count(*) from profile") == 0
+    assert (
+        await visible(
+            conn, relative.id, "select count(*) from profile where user_id <> (select auth.uid())"
+        )
+        == 0
+    ), "accepting stores the relative's own active family, never exposes the owner's profile"
 
     event = await events.create_event(
         family.id,

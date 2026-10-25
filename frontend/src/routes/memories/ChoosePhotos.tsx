@@ -34,7 +34,7 @@ type Item = {
 export function NewMemory() {
   useScreenTitle('choose photos')
   const family = useFamily()
-  if (family.isLoading) return <ScreenBody><Loading /></ScreenBody>
+  if (family.isLoading) return <ScreenBody><Header title="choose photos" back="/memories" /><Loading /></ScreenBody>
   if (family.isError || !family.data)
     return (
       <ScreenBody>
@@ -53,7 +53,7 @@ export function EditPhotos() {
   useScreenTitle('choose photos')
   const { memoryId } = useParams() as { memoryId: string }
   const memory = useMemory(memoryId)
-  if (memory.isLoading) return <ScreenBody><Loading /></ScreenBody>
+  if (memory.isLoading) return <ScreenBody><Header title="choose photos" back="/memories" /><Loading /></ScreenBody>
   if (memory.isError || !memory.data)
     return (
       <ScreenBody>

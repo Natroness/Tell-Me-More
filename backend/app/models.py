@@ -268,16 +268,21 @@ class ReferencePicks(BaseModel):
     ranked: list[int] = Field(max_length=5)  # usable candidates, best first
 
 
+class ReferenceQuality(BaseModel):
+    usable: bool
+    reason: str = Field(max_length=300)
+
+
 class ReferencePhoto(BaseModel):
-    """A real photo of the place, found on the web, that a world was built on instead of text
-    alone. `path` is our copy in the generated bucket; the rest credits the source."""
+    """A web photo or generated scene illustration used to build a world.
+    `path` is our private copy; web photos also credit their published source."""
 
     path: str
     mime: str
-    url: str
-    page_url: str
+    url: str | None = None
+    page_url: str | None = None
     title: str
-    via: Literal["google_images", "google_maps"]
+    via: Literal["google_images", "google_maps", "generated"]
 
 
 class SpotPosition(BaseModel):

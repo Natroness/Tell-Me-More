@@ -9,7 +9,7 @@ import { Home } from '@/routes/Home'
 import { Welcome } from '@/routes/Welcome'
 
 function waitingOnProfile(hasSession: boolean, hasData: boolean, isError: boolean) {
-  return hasSession && supabaseConfigured && !hasData && !isError
+  return hasSession && !hasData && !isError
 }
 
 export function ProfileError({ detail }: { detail?: string }) {
@@ -45,12 +45,13 @@ export function ProfileError({ detail }: { detail?: string }) {
 
 /** `/` is the welcome screen until a session exists, then home after onboarding. */
 export function Entry() {
-  const { ready, session } = useAuth()
+  const { ready, session, devSession } = useAuth()
   const profile = useProfile()
+  const canUseAccount = supabaseConfigured || !!devSession
 
   if (!ready) return <BootScreen />
   if (!session) return <Welcome />
-  if (!supabaseConfigured) return <ProfileError detail="sign-in is not available right now. please try again later." />
+  if (!canUseAccount) return <ProfileError detail="sign-in is not available right now. please try again later." />
   if (waitingOnProfile(true, !!profile.data, profile.isError)) return <BootScreen />
   if (profile.isError) return <ProfileError detail={profile.error.message} />
   if (profile.data?.age == null) return <Navigate to="/onboarding" replace />
@@ -61,14 +62,15 @@ export function Entry() {
 
 export function PublicOnly() {
   const location = useLocation()
-  const { ready, session } = useAuth()
+  const { ready, session, devSession } = useAuth()
   const profile = useProfile()
   const editing = Boolean((location.state as { editing?: boolean } | null)?.editing)
+  const canUseAccount = supabaseConfigured || !!devSession
 
   if (!ready) return <BootScreen />
   if (!session) return <Outlet />
   if (editing && location.pathname === '/sign-up') return <Outlet />
-  if (!supabaseConfigured) return <ProfileError detail="sign-in is not available right now. please try again later." />
+  if (!canUseAccount) return <ProfileError detail="sign-in is not available right now. please try again later." />
   if (waitingOnProfile(true, !!profile.data, profile.isError)) return <BootScreen />
   if (profile.isError) return <ProfileError detail={profile.error.message} />
   if (profile.data?.age == null) return <Navigate to="/onboarding" replace />
@@ -88,8 +90,10 @@ export function RequireAuth() {
 
 export function RequireOnboarding() {
   const location = useLocation()
+  const { devSession } = useAuth()
   const profile = useProfile()
-  if (!supabaseConfigured) return <ProfileError detail="sign-in is not available right now. please try again later." />
+  const canUseAccount = supabaseConfigured || !!devSession
+  if (!canUseAccount) return <ProfileError detail="sign-in is not available right now. please try again later." />
   if (waitingOnProfile(true, !!profile.data, profile.isError)) return <BootScreen />
   if (profile.isError) return <ProfileError detail={profile.error.message} />
   if (profile.data?.age == null) {

@@ -1,8 +1,11 @@
 """Accounts and the connections between them.
 
-A user's home family is the one they own. Connecting two accounts makes each a member of the
-other's home family, so the existing family-scoped access (stories, requests, interviews) lets
-them see each other's objects. Each side keeps its own Family/Friend label in `connection`.
+A user's home family is the one they are looking at: the active family they chose, else the
+one they own. Connecting two accounts makes each a member of the other's home family, so the
+existing family-scoped access (stories, requests, interviews) lets them see each other's
+objects. Each side keeps its own Family/Friend label in `connection`. Family links also share
+one view: someone alone in their own family adopts the other's, so both see the same objects,
+dates, tree and availability.
 """
 
 from typing import Literal
@@ -15,11 +18,14 @@ Kind = Literal["family", "friend"]
 # These SQL fragments are spliced into callers' queries, so their aliases are prefixed to never
 # capture a caller's own table alias.
 
-# The family a user owns, else the first one they joined.
+# The family a user chose to look at, else the one they own, else the first one they joined.
 HOME_FAMILY = """
     select hm.family_id from member hm join family hf on hf.id = hm.family_id
+    left join profile hp on hp.user_id = hm.user_id
     where hm.user_id = {user}
-    order by (hm.role = 'owner') desc, hf.created_at limit 1
+    order by coalesce(hm.family_id = hp.active_family_id, false) desc,
+             (hm.role = 'owner') desc, hf.created_at
+    limit 1
 """
 
 # Their own chosen name, else the name they gave in their home family.
@@ -57,10 +63,31 @@ async def account_name(conn: asyncpg.Connection, user_id: UUID) -> str | None:
     return await conn.fetchval(f"select {ACCOUNT_NAME.format(user='$1')}", user_id)
 
 
+async def set_active_family(conn: asyncpg.Connection, user_id: UUID, family_id: UUID) -> None:
+    """Caller checks membership."""
+    await conn.execute(
+        "insert into profile (user_id, display_name, active_family_id) values ($1, $2, $3) "
+        "on conflict (user_id) do update set active_family_id = excluded.active_family_id",
+        user_id,
+        await account_name(conn, user_id),
+        family_id,
+    )
+
+
+async def is_alone(conn: asyncpg.Connection, user_id: UUID) -> bool:
+    """True when the user's home family has nobody else in it (or they have none)."""
+    family_id = await home_family(conn, user_id)
+    if family_id is None:
+        return True
+    return await conn.fetchval("select count(*) from member where family_id = $1", family_id) <= 1
+
+
 async def connect(
     conn: asyncpg.Connection, a: UUID, b: UUID, a_sees_b: Kind, b_sees_a: Kind
 ) -> None:
     """Idempotent. Run inside a transaction."""
+    before = {a: await home_family(conn, a), b: await home_family(conn, b)}
+    alone = {a: await is_alone(conn, a), b: await is_alone(conn, b)}
     await conn.execute(
         "insert into connection (user_id, other_id, kind) values ($1, $2, $3), ($2, $1, $4) "
         "on conflict (user_id, other_id) do update set kind = excluded.kind",
@@ -89,3 +116,8 @@ async def connect(
             family_id,
             person_id,
         )
+    # The sender's family is shared unless only the accepter already has relatives in theirs.
+    shared = before[b] if alone[a] and not alone[b] else before[a]
+    for user, kind in ((a, a_sees_b), (b, b_sees_a)):
+        if kind == "family" and alone[user] and shared is not None and before[user] != shared:
+            await set_active_family(conn, user, shared)

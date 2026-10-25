@@ -28,7 +28,7 @@ export function PublicStory() {
 
   return (
     <ScreenBody screen="public-story">
-      <Header title="a family story" back={false} />
+      <Header title="a family story" back="/" />
       {story.isLoading ? (
         <Loading />
       ) : story.error ? (

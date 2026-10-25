@@ -11,6 +11,7 @@ from app.routers import (
     answer_stream,
     availability,
     connections,
+    dev_auth,
     events,
     families,
     heirlooms,
@@ -21,6 +22,7 @@ from app.routers import (
     notifications,
     profiles,
     requests,
+    speech,
     stories,
     storytime,
     timeline,
@@ -54,6 +56,7 @@ app = FastAPI(title="Lorebook API", lifespan=lifespan)
 
 for r in (
     families,
+    dev_auth,
     availability,
     events,
     heirlooms,
@@ -63,6 +66,7 @@ for r in (
     memories,
     stories,
     storytime,
+    speech,
     timeline,
     requests,
     notifications,

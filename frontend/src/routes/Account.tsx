@@ -25,7 +25,7 @@ import { describeMe } from '@/lib/relations'
 import { activeTheme, applyTheme, type ThemeChoice } from '@/lib/theme'
 import { useScreenTitle } from '@/lib/useScreenTitle'
 import { AgeStepper, SectionLabel, Segmented } from '@/routes/account/controls'
-import { avatarRole, avatarSrc, supportsAvatars } from '@/lib/avatar'
+import { avatarSrc, supportsAvatars } from '@/lib/avatar'
 import {
   AvatarChoiceSheet,
   PhotoCropper,
@@ -207,7 +207,7 @@ function EditProfile({ profile, onSaved }: { profile: Profile; onSaved: (data: P
     }
     setBusy(true)
     const { data, error } = await api.PATCH('/api/profile', {
-      body: { display_name: name.trim(), age, ...(avatars ? { avatar_style: draft.style } : {}) },
+      body: { display_name: name.trim(), age, ...(avatars ? { avatar_style: draft.style, avatar_preset: draft.preset } : {}) },
     })
     setBusy(false)
     if (error || !data) {
@@ -231,7 +231,7 @@ function EditProfile({ profile, onSaved }: { profile: Profile; onSaved: (data: P
             disabled={draft.uploading}
           />
           <p className="font-sans text-[1.1rem] leading-tight text-muted" aria-live="polite">
-            {draft.hasCustom ? 'my photo' : avatarRole(draft.style, age)}
+            {draft.role(age)}
           </p>
           {draft.uploading && <UploadProgress value={draft.progress} />}
           {draft.error && (
@@ -266,7 +266,9 @@ function EditProfile({ profile, onSaved }: { profile: Profile; onSaved: (data: P
           <AvatarChoiceSheet
             open={draft.sheetOpen}
             hasCustom={draft.hasCustom}
+            preset={draft.preset}
             onUpload={draft.chooseFile}
+            onPickPreset={draft.pickPreset}
             onUseIllustrated={draft.useIllustrated}
             onClose={() => draft.setSheetOpen(false)}
           />

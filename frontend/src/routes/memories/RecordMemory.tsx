@@ -17,7 +17,7 @@ export function RecordMemory() {
   useScreenTitle('record a memory')
   const { memoryId } = useParams() as { memoryId: string }
   const memory = useMemory(memoryId)
-  if (memory.isLoading) return <ScreenBody><Loading /></ScreenBody>
+  if (memory.isLoading) return <ScreenBody><Header title="record a memory" back="/memories" /><Loading /></ScreenBody>
   if (memory.isError || !memory.data)
     return (
       <ScreenBody>

@@ -31,7 +31,7 @@ Read these first: `docs/DESIGN.md` (§2 rules, §4 data model, §5.1 pipeline, �
 World API facts (docs.worldlabs.ai, checked 2026-10-25):
 - **Auth:** header `WLT-Api-Key: <key>`. Credits are bought at platform.worldlabs.ai, separately from the Marble web app.
 - **Inputs:**
-  - Text: `world_prompt.type = "text"`.
+  - Text is supported by the provider, but this application refuses new text-only requests. Every new generation must have a validated scene image (§5.6).
   - Image: `type = "image"`, with `image_prompt.source = "media_asset"` after uploading through `POST /marble/v1/media-assets:prepare_upload`, then a PUT to the signed URL. Use media assets, not public URLs, because family photos are private.
 - **Generation flow:**
   - Generating returns an Operation. Poll `GET /marble/v1/operations/{operation_id}` until `done`. The operation expires after about 1 h.
@@ -76,6 +76,7 @@ create table immersive_world (
      'ready', 'failed')),
   input_mode text check (input_mode in ('image', 'reference', 'text')),  -- 'reference': §5.6
   reference jsonb,     -- ReferencePhoto (§5.6) when input_mode = 'reference', else null
+  input_audit jsonb not null default '{}', -- search, image checks, source and actual request type
   scene_prompt text,
   used_fact_ids uuid[] not null default '{}',
   provider text not null default 'worldlabs',
@@ -182,7 +183,7 @@ class WorldGen(Protocol):
 ```
 
 - `WorldLabsWorldGen` uses `httpx.AsyncClient`, matching other adapters, and keeps all World Labs request and response shapes inside this file.
-- When `image` is set, upload it with `media-assets:prepare_upload` and a PUT, then send `{"type":"image","image_prompt":{"source":"media_asset","media_asset_id":...},"text_prompt": prompt}`. Otherwise send `{"type":"text","text_prompt": prompt}`.
+- Require `image`, upload it with `media-assets:prepare_upload` and a PUT, then send `{"type":"image","image_prompt":{"source":"media_asset","media_asset_id":...},"text_prompt": prompt,"is_pano":false}`. These are ordinary perspective images, not 360-degree panoramas. Reject missing images before any upload or paid generation.
 - On 429, raise a typed `RateLimited(retry_after: float)`.
 - Add `world: WorldGen` to the `Providers` dataclass. Constructing it with an empty key must not raise; it only fails when called.
 - **Update `tests/conftest.py`:** add `FakeWorldGen` to `Fakes` and to the `Providers(...)` built in the `fakes` fixture. Otherwise every existing test breaks.
@@ -214,10 +215,10 @@ class WorldGen(Protocol):
    - Download the photo and call `providers.vision.json(..., schema=SceneSpec, images=[blob])` with the default effort. This lane isn't latency-critical, and the default effort writes better prompts.
    - Validate that every `used_fact_ids` and `hotspots[*].fact_ids` and `segment_ids` belongs to this heirloom, and drop anything that doesn't.
    - If nothing valid remains, set `failed` with error "not enough story details yet".
-   - If `input_mode` is "text" and the scene has a `place_query`, set `finding_reference` and look for a real photo of the place (§5.6).
-   - Save `scene_prompt`, `input_mode`, `reference`, `used_fact_ids`, and the planned spots (no u,v yet) in one write, so a job that dies mid-search writes the scene again rather than leaving half of it.
+   - Save the scene plan, search query, source classification, valid fact ids and planned spots before searching, so a restart can resume reference preparation.
+   - Before any new operation, validate the wide family photo or prepare a scene reference (§5.6). This also repairs cached text-only plans left by older workers.
 3. **generating:**
-   - If `provider_operation_id` is null, call `world.start(...)` with the family photo (`image`), our copy of the reference (`reference`), or no image (`text`), and **commit `provider_operation_id` immediately**.
+   - If `provider_operation_id` is null, record `request_type=image` and the requested model in the audit, call `world.start(...)` with the validated family photo or stored scene reference, and **commit `provider_operation_id` immediately**. An existing paid operation still resumes as-is, including old text-only operations; never silently pay for a replacement.
    - Then poll every `immersive_poll_seconds`, without holding a DB connection, until done or `immersive_timeout_seconds`.
    - On `RateLimited`, sleep `retry_after` with jitter and retry. On an expired operation or a provider error, clear `provider_operation_id` and fail with the error, so a user retry starts fresh.
 4. **saving:** download `spz_100k`, `spz_500k`, `pano` and `thumbnail` (plus `collider` if present) and upload them to storage at `world_path`. Save `assets` and `semantics`. **Do not store World Labs URLs as the source of truth; they may expire** (see §10).
@@ -241,15 +242,17 @@ Also add to the `Story` response in `stories.py`: `photos: dict[UUID, str]`, sig
 
 ### 5.6 Reference photos (`app/world_reference.py`)
 
-A close-up of the object can't show Marble the place, so for a `text` scene we look for a real photo of it.
+A close-up cannot show Marble the setting. Every new world must use a validated image of the space: a wide family photo, a relevant web photo, or a generated interpretation. `text` remains a planning classification and legacy storage value, never a new World Labs request type.
 
-1. Search `search.images(place_query)` (SerpApi `google_images`). When the scene names a specific place, also search `search.place_photos(place_name)` (SerpApi `google_maps`, then `google_maps_photos` in the "Inside" category).
-2. Shortlist up to 8: the named place's own photos first, then image results at least 1024 px wide.
-3. Download each full-size file once. Keep those that are a JPEG, PNG, or WebP under 8 MB, up to 16 MB in all.
-4. Ask vision (`immersive_reference.md`) which are wide, eye-level views of the space, best first. It sees the same full-size files World Labs would get, since a thumbnail hides watermarks. Upload the best to `world_path(..., "reference", ext)` and save a `ReferencePhoto` (path, mime, source URL, page URL, title, `via`) as `reference`, with `input_mode = 'reference'`.
-5. Nothing usable, or any error, leaves the world as `text`. This step never fails a world.
+1. Search SerpApi Images for the kind of room, landmark or landscape. If facts name a specific venue, also search Maps and its inside photos. Searches run independently, so an Images failure does not discard usable Maps photos. Missing queries in old plans fall back to a search derived from the scene description.
+2. Shortlist up to eight, Maps first. Download at most three at a time, with HTTPS/public-address checks on every redirect and an 8 MB streaming cap. Decode and verify actual pixels with Pillow: JPEG/PNG/WebP, at least 1024×576, width at least height, no more than 40 megapixels. Candidate bytes supplied to vision total at most 16 MB.
+3. Vision ranks wide, coherent views matching the setting and rejects close-ups, inappropriate places, collages, watermarks and prominent faces. Store the best file privately under `world_path(..., "reference", ext)`, retaining its source attribution.
+4. If search fails or no candidate qualifies, use the configured `MetaImage` provider to generate a representative architectural view. Validate its bytes and ask vision to check the setting, depth, open paths and geometry. At most two attempts; unusable images or unavailable providers fail before World Labs starts. Provider calls have bounded timeouts.
+5. Persist `input_audit`: planned/effective query, each search's outcome/result count, candidate count, generated attempts/review reasons, selected source, dimensions, MIME, SHA-256, request type and model. Store the selected image before generation. Retries reuse a valid saved image.
 
-One photo, not `multi-image`: web photos of different places don't stitch into one space. Marble copies big lettering in the photo (floor stickers, banners) as garbled text. Filtering it out doesn't work for stores, where most photos have signs and the ones without are watermarked stock (tested 2026-10-25, 5 of 7 Walmart aisle photos had big lettering). The viewer credits the photo's page under the label. Search results are cached in `serp_cache`.
+`ReferencePhoto.via` distinguishes `google_images`, `google_maps` and `generated`; generated images have no invented source URL. The viewer says “an AI-generated image of a similar setting” for generated references and credits the published page for web photos. An unknown venue stays a representative setting; do not infer an exact university or landmark. One perspective image is sent with `is_pano=false`. Unrelated web photos are not multiple views of one scene, so do not send them as `multi-image`.
+
+The 2026-10-25 Red Bull investigation found a ready `marble-1.1-plus` world created from text with no reference. The previous search failure/empty-result fallback silently allowed this. Old ready worlds are preserved and require an explicit fresh generation to benefit from image conditioning; this change does not rewrite their provenance or claim their quality has been regenerated. A reference-only live replay for Jimmy returned 100 image-search results; seven downloaded candidates passed file checks but were rejected by vision. The configured image provider then produced a 1920×1280 WebP that passed scene review. No replacement World Labs generation was started.
 
 ---
 
@@ -271,7 +274,7 @@ One photo, not `multi-image`: web photos of different places don't stitch into o
   - `/w/:worldId` inside `AuthGate`
   - `/s/:heirloomId/w/:worldId` public, passing `k`
 - Dependencies, only in this chunk: `three` and World Labs' Spark renderer (`@sparkjsdev/spark`, which their docs recommend for Marble SPZ). **Pin exact versions you have verified exist on npm and are at least 2 weeks old.** Follow `docs.worldlabs.ai/api/rendering-spz` for scale: apply `metric_scale_factor` and `ground_plane_offset` from `semantics`.
-- Load `spz_100k` on phones (coarse pointer or narrow screen) and `spz_500k` on desktop. Show the thumbnail as a placeholder while loading.
+- Default to `spz_100k` on phones (coarse pointer or narrow screen) and `spz_500k` on desktop. Offer “Higher detail” / “Fast preview” when both exist, disposing the previous renderer when switching. A failed load shows an error rather than hiding it as a successful load. Show the thumbnail while loading. Full-resolution splats are not currently stored; 500k is the higher-detail stored asset.
 - Controls:
   - **phone:** drag to look, two-finger drag or pinch to move forward and back, plus a "reset view" button
   - **desktop:** drag to look, WASD or arrow keys
@@ -299,7 +302,8 @@ One photo, not `multi-image`: web photos of different places don't stitch into o
   - **Stage happy path:** the fakes return a `SceneSpec`, an operation id and then assets, plus spot positions. The row ends `ready`, with storage paths under `{family_id}/`.
   - **Resume:** the row already has `provider_operation_id`, so `start()` is **not** called again.
   - **Validation:** a `SceneSpec` citing a fact id from another heirloom gets that id dropped. If nothing valid is left, the world fails cleanly.
-  - **Reference photo:** a close-up with a `place_query` is built on the picked web photo, the named place's Maps photos come first, a pick that won't download falls to the next, and nothing usable or a failed search still builds from text.
+  - **Scene references:** real scene photos are preferred; search failures or rejected results use a validated generated scene. Missing queries and cached text plans cannot bypass this step. Invalid or semantically rejected images never start World Labs. Maps still works if Images fails, retries reuse saved references, and the adapter rejects text-only starts.
+  - **Viewer:** browser tests cover source labeling, failed loading and both preview/detail selections on desktop and mobile.
   - **Spot failure:** an exception in placement still ends `ready`, with spots that have no `u,v`.
   - **Rate limit:** `RateLimited` from `start()` makes the stage back off and retry (patch sleep), without failing the job.
   - **Public GET:** a wrong `k` returns 404, and a non-ready world returns 404.
@@ -334,12 +338,12 @@ Commit per step. Run `make lint` and `make test` before every push.
 
 ## 10. VERIFY before or while building (record results in DESIGN.md §3.4)
 
-1. The World Labs API key works, credits are bought on **platform.worldlabs.ai**, and one `marble-1.0-draft` text world succeeds. Note the real generation time.
+1. The World Labs API key works, credits are bought on **platform.worldlabs.ai**, and one `marble-1.0-draft` image-conditioned world succeeds. Note the real generation time.
 2. **Do asset URLs (`spz_urls`, `pano_url`) expire?** If they don't, copying to storage is still kept for privacy and RLS, but can become lazy.
 3. SPZ file sizes for 100k and 500k (confirm they fit Supabase's upload limit), and frame rate on a mid-range phone.
 4. Pano yaw convention and origin: does u = 0.5 face the initial camera direction? Fix the u,v to direction formula once, in one helper.
 5. The current Spark package name and version, and its SPZ loading API.
-6. Whether `image` input mode beats `text` for old scanned photos of places. Try one of each.
+6. Check whether an old scan is wide and sharp enough; otherwise find or generate a better scene reference. No new text-only generations.
 7. Privacy copy: confirm the family is OK sending the photo to World Labs. The confirm sheet must say so.
 
 ---

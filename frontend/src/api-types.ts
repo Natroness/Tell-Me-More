@@ -11,11 +11,31 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Families */
+        /**
+         * List Families
+         * @description The active family first (see accounts.HOME_FAMILY), then owned, then oldest.
+         */
         get: operations["list_families_api_families_get"];
         put?: never;
         /** Create Family */
         post: operations["create_family_api_families_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/families/active": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Choose Family */
+        put: operations["choose_family_api_families_active_put"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -87,6 +107,24 @@ export interface paths {
         get: operations["get_tree_api_families__family_id__tree_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/families/{family_id}/tree/connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Tree Connections */
+        get: operations["tree_connections_api_families__family_id__tree_connections_get"];
+        put?: never;
+        /** Add Tree Connection */
+        post: operations["add_tree_connection_api_families__family_id__tree_connections_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -863,6 +901,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/speech": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Speak */
+        post: operations["speak_api_speech_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/families/{family_id}/timeline": {
         parameters: {
             query?: never;
@@ -1036,6 +1091,41 @@ export interface paths {
         head?: never;
         /** Update Profile */
         patch: operations["update_profile_api_profile_patch"];
+        trace?: never;
+    };
+    "/api/profile/avatar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start Avatar Upload */
+        post: operations["start_avatar_upload_api_profile_avatar_post"];
+        /** Remove Avatar */
+        delete: operations["remove_avatar_api_profile_avatar_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/profile/avatar/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Finish Avatar Upload */
+        post: operations["finish_avatar_upload_api_profile_avatar_complete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/families/{family_id}/invites": {
@@ -1234,6 +1324,24 @@ export interface components {
             /** Mime */
             mime: string;
         };
+        /** AddTreeConnection */
+        AddTreeConnection: {
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+            /**
+             * Anchor Person Id
+             * Format: uuid
+             */
+            anchor_person_id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "parent" | "father" | "mother" | "child" | "son" | "daughter" | "grandparent" | "grandfather" | "grandmother" | "grandchild" | "grandson" | "granddaughter" | "spouse" | "sibling" | "brother" | "sister" | "friend";
+        };
         /** AddedMedia */
         AddedMedia: {
             /**
@@ -1313,6 +1421,13 @@ export interface components {
             /** Updated At */
             updated_at?: string | null;
         };
+        /** AvatarUpload */
+        AvatarUpload: {
+            /** Upload Url */
+            upload_url: string;
+            /** Avatar Path */
+            avatar_path: string;
+        };
         /**
          * BBox
          * @description Normalized 0..1 coordinates on the photo.
@@ -1386,6 +1501,14 @@ export interface components {
              * @enum {string}
              */
             kind?: "family" | "friend";
+        };
+        /** ChooseFamily */
+        ChooseFamily: {
+            /**
+             * Family Id
+             * Format: uuid
+             */
+            family_id: string;
         };
         /** Connection */
         Connection: {
@@ -1579,7 +1702,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "parent" | "child" | "spouse" | "sibling";
+            kind: "parent" | "father" | "mother" | "child" | "son" | "daughter" | "grandparent" | "grandfather" | "grandmother" | "grandchild" | "grandson" | "granddaughter" | "spouse" | "sibling" | "brother" | "sister" | "friend";
             /** Email */
             email: string;
         };
@@ -1765,6 +1888,11 @@ export interface components {
             name: string;
             /** Invite Code */
             invite_code: string;
+            /**
+             * Is Active
+             * @default false
+             */
+            is_active?: boolean;
         };
         /** FamilyAvailability */
         FamilyAvailability: {
@@ -1775,6 +1903,8 @@ export interface components {
             person_id: string;
             /** Display Name */
             display_name: string;
+            /** Avatar Url */
+            avatar_url?: string | null;
             /**
              * Status
              * @enum {string}
@@ -1938,6 +2068,11 @@ export interface components {
             me?: string | null;
             /** Member Person Ids */
             member_person_ids: string[];
+        };
+        /** FinishAvatarUpload */
+        FinishAvatarUpload: {
+            /** Avatar Path */
+            avatar_path: string;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -2164,7 +2299,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "parent" | "child" | "spouse" | "sibling";
+            kind: "parent" | "father" | "mother" | "child" | "son" | "daughter" | "grandparent" | "grandfather" | "grandmother" | "grandchild" | "grandson" | "granddaughter" | "spouse" | "sibling" | "brother" | "sister" | "friend";
             /** Email */
             email: string;
             /**
@@ -2486,6 +2621,8 @@ export interface components {
             degree?: number;
             /** Relation */
             relation?: string | null;
+            /** Avatar Url */
+            avatar_url?: string | null;
         };
         /** Photo */
         Photo: {
@@ -2526,6 +2663,12 @@ export interface components {
              * @enum {string}
              */
             preferred_language?: "en" | "es" | "hi";
+            /** Avatar Style */
+            avatar_style?: ("male" | "female") | null;
+            /** Avatar Preset */
+            avatar_preset?: ("boy" | "girl" | "man" | "woman" | "older-man" | "older-woman") | null;
+            /** Avatar Url */
+            avatar_url?: string | null;
         };
         /**
          * Quote
@@ -2578,7 +2721,13 @@ export interface components {
             /** Title */
             title: string;
             /** Page Url */
-            page_url: string;
+            page_url?: string | null;
+            /**
+             * Kind
+             * @default web
+             * @enum {string}
+             */
+            kind?: "web" | "generated";
         };
         /**
          * Relationship
@@ -2597,6 +2746,10 @@ export interface components {
             b: string;
             /** Kind */
             kind: string;
+            /** A Role */
+            a_role?: string | null;
+            /** B Role */
+            b_role?: string | null;
         };
         /** ReorderPhotos */
         ReorderPhotos: {
@@ -2646,6 +2799,12 @@ export interface components {
             listener_name?: string | null;
             /** Storyteller Name */
             storyteller_name?: string | null;
+            /**
+             * Viewer Role
+             * @default member
+             * @enum {string}
+             */
+            viewer_role?: "storyteller" | "listener" | "member";
         };
         /** Requests */
         Requests: {
@@ -2749,6 +2908,11 @@ export interface components {
              */
             expires_at: string;
         };
+        /** SpeechIn */
+        SpeechIn: {
+            /** Text */
+            text: string;
+        };
         /** SpotFact */
         SpotFact: {
             /**
@@ -2758,6 +2922,11 @@ export interface components {
             id: string;
             /** Text */
             text: string;
+        };
+        /** StartAvatarUpload */
+        StartAvatarUpload: {
+            /** Photo Mime */
+            photo_mime: string;
         };
         /** StartedInterview */
         StartedInterview: {
@@ -2972,6 +3141,20 @@ export interface components {
             /** Next Offset */
             next_offset: number | null;
         };
+        /** TreeConnection */
+        TreeConnection: {
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+            /** Display Name */
+            display_name: string;
+            /** Kind */
+            kind: string;
+            /** Person Id */
+            person_id?: string | null;
+        };
         /** Turn */
         Turn: {
             /**
@@ -3059,6 +3242,10 @@ export interface components {
             ui_mode?: ("regular" | "simplified" | "extra_simple") | null;
             /** Preferred Language */
             preferred_language?: ("en" | "es" | "hi") | null;
+            /** Avatar Style */
+            avatar_style?: ("male" | "female") | null;
+            /** Avatar Preset */
+            avatar_preset?: ("boy" | "girl" | "man" | "woman" | "older-man" | "older-woman") | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -3142,6 +3329,39 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Family"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    choose_family_api_families_active_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChooseFamily"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3276,6 +3496,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FamilyTree"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    tree_connections_api_families__family_id__tree_connections_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                family_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TreeConnection"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_tree_connection_api_families__family_id__tree_connections_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                family_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddTreeConnection"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Relationship"];
                 };
             };
             /** @description Validation Error */
@@ -5096,6 +5382,39 @@ export interface operations {
             };
         };
     };
+    speak_api_speech_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SpeechIn"];
+            };
+        };
+        responses: {
+            /** @description Raw 16-bit little-endian PCM */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "audio/L16;rate=24000;channels=1": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_timeline_api_families__family_id__timeline_get: {
         parameters: {
             query: {
@@ -5436,6 +5755,92 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["UpdateProfile"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Profile"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_avatar_upload_api_profile_avatar_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartAvatarUpload"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AvatarUpload"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_avatar_api_profile_avatar_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Profile"];
+                };
+            };
+        };
+    };
+    finish_avatar_upload_api_profile_avatar_complete_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FinishAvatarUpload"];
             };
         };
         responses: {

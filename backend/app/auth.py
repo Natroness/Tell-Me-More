@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Annotated
-from uuid import UUID
+from uuid import NAMESPACE_DNS, UUID, uuid5
 
 import asyncpg
 import jwt
@@ -12,10 +12,37 @@ from app.config import get_settings
 
 _bearer = HTTPBearer()
 
+DEV_TOKEN_PREFIX = "dev."
+
 
 @dataclass(frozen=True)
 class User:
     id: UUID
+
+
+def dev_user_id_for_email(email: str) -> UUID:
+    """Deterministic user id for a dev-login email, so the same email is the same account."""
+    return uuid5(NAMESPACE_DNS, email.strip().lower())
+
+
+def dev_token_for_user_id(user_id: UUID) -> str:
+    return f"{DEV_TOKEN_PREFIX}{user_id.hex}"
+
+
+def dev_token_for_email(email: str) -> str:
+    return dev_token_for_user_id(dev_user_id_for_email(email))
+
+
+def dev_user_from_token(token: str) -> User | None:
+    """Returns a User when dev passwordless login is enabled and the token is a dev token."""
+    if not get_settings().dev_passwordless_login:
+        return None
+    if not token.startswith(DEV_TOKEN_PREFIX):
+        return None
+    try:
+        return User(id=UUID(hex=token[len(DEV_TOKEN_PREFIX) :]))
+    except ValueError:
+        return None
 
 
 @lru_cache
@@ -37,6 +64,9 @@ def _decode(token: str) -> dict:
 
 def user_from_token(token: str) -> User:
     """Raises jwt.PyJWTError. Blocking on the first JWKS fetch, so call it off the event loop."""
+    dev_user = dev_user_from_token(token)
+    if dev_user is not None:
+        return dev_user
     return User(id=UUID(_decode(token)["sub"]))
 
 

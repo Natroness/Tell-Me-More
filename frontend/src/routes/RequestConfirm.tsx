@@ -26,7 +26,7 @@ export function RequestConfirm() {
 
   return (
     <ScreenBody screen="request-status">
-      <Header title="request status" back={false} />
+      <Header title="request status" back="/" />
       {detail.isLoading ? (
         <Loading />
       ) : !r ? (

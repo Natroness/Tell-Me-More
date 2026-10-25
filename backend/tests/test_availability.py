@@ -112,7 +112,13 @@ async def test_status_precedence_disabled_override_expiry_and_schedule(conn, see
     initial = await availability.list_family_availability(seed.family_id, relative)
     mine = next(item for item in initial if item.person_id == seed.narrator_id)
     assert mine.status == "not_shared"
-    assert set(mine.model_dump()) == {"person_id", "display_name", "status", "last_updated_at"}
+    assert set(mine.model_dump()) == {
+        "person_id",
+        "display_name",
+        "avatar_url",
+        "status",
+        "last_updated_at",
+    }
 
     # Sharing without confirming the schedule is still not shared.
     await availability.update_availability_settings(

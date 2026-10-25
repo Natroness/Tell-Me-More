@@ -16,13 +16,13 @@ import asyncpg
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 
+from app.accounts import set_active_family
 from app.auth import CurrentUser, User, require_member
 from app.db import pool
+from app.family_roles import ROLES, Kind, relationship
 from app.routers.notifications import create_notification
 
 router = APIRouter(prefix="/api", tags=["invites"])
-
-Kind = Literal["parent", "child", "spouse", "sibling"]
 
 
 class CreateInvite(BaseModel):
@@ -80,9 +80,7 @@ def normalize_email(raw: str) -> str:
 
 def edge(kind: str, anchor: UUID, recipient: UUID) -> tuple[UUID, UUID, str]:
     """Maps an invitation onto relationship's "a is <kind> of b" representation."""
-    if kind == "child":
-        return anchor, recipient, "parent"
-    return recipient, anchor, kind
+    return relationship(kind, anchor, recipient)[:3]
 
 
 async def verified_email(conn: asyncpg.Connection, user: User) -> str | None:
@@ -119,10 +117,35 @@ async def check_tree_rules(
         )
         if linked:
             raise HTTPException(status.HTTP_409_CONFLICT, "they are already connected in the tree")
-    if kind not in ("parent", "child"):
+    edge_kind, _, _, descendant = ROLES[kind]
+    if recipient is not None and edge_kind != "friend":
+        rows = await conn.fetch(
+            "select a,b,kind from relationship where kind != 'friend' "
+            "and family_id=(select family_id from person where id=$1)",
+            anchor,
+        )
+        generation = {anchor: 0}
+        queue = [anchor]
+        for person in queue:
+            for row in rows:
+                if person not in (row["a"], row["b"]):
+                    continue
+                other = row["b"] if person == row["a"] else row["a"]
+                if other in generation:
+                    continue
+                span = {"parent": 1, "grandparent": 2}.get(row["kind"], 0)
+                generation[other] = generation[person] + (span if person == row["a"] else -span)
+                queue.append(other)
+        span = {"parent": 1, "grandparent": 2}.get(edge_kind, 0)
+        expected = span if descendant else -span
+        if recipient in generation and generation[recipient] != expected:
+            raise HTTPException(
+                409, "that relationship conflicts with generations already in the tree"
+            )
+    if edge_kind not in ("parent", "grandparent"):
         return
-    parent, child = (recipient, anchor) if kind == "parent" else (anchor, recipient)
-    if child is not None:
+    parent, child = (anchor, recipient) if descendant else (recipient, anchor)
+    if child is not None and edge_kind == "parent":
         parents = await conn.fetchval(
             "select count(*) from relationship where b = $1 and kind = 'parent'", child
         )
@@ -134,9 +157,10 @@ async def check_tree_rules(
         loop = await conn.fetchval(
             """
             with recursive down(id) as (
-              select b from relationship where a = $1 and kind = 'parent'
+              select b from relationship where a = $1 and kind in ('parent','grandparent')
               union
-              select r.b from relationship r join down d on r.a = d.id where r.kind = 'parent'
+              select r.b from relationship r join down d on r.a = d.id
+                where r.kind in ('parent','grandparent')
             )
             select 1 from down where id = $2
             """,
@@ -282,19 +306,25 @@ async def accept_invite(invite_id: UUID, user: CurrentUser) -> Invite:
             if inv["status"] == "accepted" and inv["accepted_user_id"] != user.id:
                 raise HTTPException(status.HTTP_409_CONFLICT, "this invitation was already used")
             if inv["status"] == "pending":
+                await conn.execute("select 1 from family where id=$1 for update", inv["family_id"])
                 person_id = await _join(conn, user, inv["family_id"], inv["email"])
                 # Locks the anchor so two accepts can't both give it a third parent.
                 await conn.execute(
                     "select 1 from person where id = $1 for update", inv["anchor_person_id"]
                 )
                 await check_tree_rules(conn, inv["anchor_person_id"], person_id, inv["kind"])
-                a, b, kind = edge(inv["kind"], inv["anchor_person_id"], person_id)
+                a, b, kind, a_role, b_role = relationship(
+                    inv["kind"], inv["anchor_person_id"], person_id
+                )
                 await conn.execute(
-                    "insert into relationship (family_id, a, b, kind) values ($1, $2, $3, $4)",
+                    "insert into relationship (family_id, a, b, kind, a_role, b_role) "
+                    "values ($1, $2, $3, $4, $5, $6)",
                     inv["family_id"],
                     a,
                     b,
                     kind,
+                    a_role,
+                    b_role,
                 )
                 await conn.execute(
                     "update family_invite set status = 'accepted', accepted_user_id = $2, "
@@ -303,6 +333,8 @@ async def accept_invite(invite_id: UUID, user: CurrentUser) -> Invite:
                     user.id,
                     person_id,
                 )
+                # Accepting joins their family, so show it from now on.
+                await set_active_family(conn, user.id, inv["family_id"])
             inviter_id = await conn.fetchval(
                 "select person_id from member where user_id = $1 and family_id = $2",
                 inv["inviter_user_id"],

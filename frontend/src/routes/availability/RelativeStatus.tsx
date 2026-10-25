@@ -35,7 +35,7 @@ export function RelativeStatusScreen() {
   else
     body = (
       <div className="flex flex-col items-center gap-3 pt-4 text-center">
-        <Avatar name={person.display_name} size="lg" highlight={person.status === 'free_now'} />
+        <Avatar name={person.display_name} src={person.avatar_url} size="lg" highlight={person.status === 'free_now'} />
         {(isMe || (label && label !== person.display_name)) && (
           <p className="font-sans text-[1.25rem] break-words text-muted">{isMe ? 'you' : label}</p>
         )}

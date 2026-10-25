@@ -77,6 +77,10 @@ function BackLink({ back }: { back: string | number }) {
   )
 }
 
+function worldAssetForDetail(assets: Record<string, string>, highDetail: boolean) {
+  return (highDetail ? assets.spz_500k : assets.spz_100k) ?? assets.spz_500k ?? assets.spz_100k
+}
+
 function Walk({ world, back }: { world: World; back: string | number }) {
   const mount = useRef<HTMLDivElement>(null)
   const spotEls = useRef(new Map<string, HTMLButtonElement>())
@@ -84,16 +88,21 @@ function Walk({ world, back }: { world: World; back: string | number }) {
   const [loaded, setLoaded] = useState(false)
   const [open, setOpen] = useState<Spot | null>(null)
   const [listing, setListing] = useState(false)
+  const [highDetail, setHighDetail] = useState(() => !onPhone())
+  const [loadError, setLoadError] = useState(false)
   const placed = world.spots.filter((s) => s.u != null && s.v != null)
   const unplaced = world.spots.filter((s) => s.u == null || s.v == null)
 
   useEffect(() => {
     const el = mount.current!
-    const url =
-      (onPhone() ? world.assets.spz_100k : world.assets.spz_500k) ??
-      world.assets.spz_500k ??
-      world.assets.spz_100k
-    if (!url) return
+    const url = worldAssetForDetail(world.assets, highDetail)
+    if (!url) {
+      setLoadError(true)
+      return
+    }
+    let active = true
+    setLoaded(false)
+    setLoadError(false)
     // docs.worldlabs.ai/api/rendering-spz: metres = raw x metric_scale_factor, the ground sits
     // at y = ground_plane_offset below the panorama's centre, and Marble's raw OpenCV axes turn
     // into three's by a half turn around X.
@@ -114,7 +123,9 @@ function Walk({ world, back }: { world: World; back: string | number }) {
     splat.scale.setScalar(scale)
     splat.position.copy(eye)
     scene.add(splat)
-    splat.initialized.then(() => setLoaded(true)).catch(() => setLoaded(true))
+    splat.initialized
+      .then(() => { if (active) setLoaded(true) })
+      .catch(() => { if (active) setLoadError(true) })
 
     const controls = new SparkControls({ canvas: renderer.domElement })
     // Start where the panorama was taken, looking at its centre.
@@ -152,6 +163,7 @@ function Walk({ world, back }: { world: World; back: string | number }) {
     }
     window.addEventListener('resize', resize)
     return () => {
+      active = false
       window.removeEventListener('resize', resize)
       renderer.setAnimationLoop(null)
       scene.remove(splat)
@@ -162,19 +174,24 @@ function Walk({ world, back }: { world: World; back: string | number }) {
     }
     // The world doesn't change while it's open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [world.id])
+  }, [world.id, highDetail])
 
   return (
     <main className="fixed inset-0 overflow-hidden bg-ink text-paper">
       <div ref={mount} className="absolute inset-0 touch-none" />
-      {!loaded && world.assets.thumbnail && (
+      {loadError && (
+        <p role="alert" className="absolute inset-x-4 top-24 rounded-xl bg-ink/90 p-4 text-center">
+          This detail level could not load. Try the other detail level or return to the story.
+        </p>
+      )}
+      {!loaded && !loadError && world.assets.thumbnail && (
         <img
           src={world.assets.thumbnail}
           alt=""
           className="absolute inset-0 size-full object-cover opacity-70 blur-sm"
         />
       )}
-      {!loaded && (
+      {!loaded && !loadError && (
         <p role="status" className="absolute inset-x-0 top-1/2 text-center text-2xl">
           Opening the memory…
         </p>
@@ -201,15 +218,27 @@ function Walk({ world, back }: { world: World; back: string | number }) {
         {world.reference && (
           <p className="text-sm opacity-80">
             Setting based on{' '}
-            <a href={world.reference.page_url} target="_blank" rel="noreferrer" className="underline">
-              a public photo of a similar place
-            </a>
+            {world.reference.kind === 'generated' ? (
+              'an AI-generated image of a similar setting'
+            ) : (
+              <a href={world.reference.page_url ?? undefined} target="_blank" rel="noreferrer" className="underline">
+                a public photo of a similar place
+              </a>
+            )}
           </p>
         )}
       </header>
 
       <footer className="absolute inset-x-0 bottom-0 flex flex-wrap items-center justify-center gap-3 p-4 pb-8">
         <BackLink back={back} />
+        {world.assets.spz_100k && world.assets.spz_500k && (
+          <button
+            type="button" onClick={() => setHighDetail((value) => !value)}
+            className="rounded-full bg-paper/90 px-5 py-3 text-lg text-ink shadow"
+          >
+            {highDetail ? 'Fast preview' : 'Higher detail'}
+          </button>
+        )}
         <button
           onClick={() => resetView.current()}
           className="rounded-full bg-paper/90 px-5 py-3 text-lg text-ink shadow"

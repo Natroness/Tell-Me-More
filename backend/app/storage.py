@@ -9,7 +9,7 @@ import httpx
 
 from app.config import get_settings
 
-Bucket = Literal["photos", "audio", "generated"]
+Bucket = Literal["photos", "audio", "generated", "avatars"]
 
 
 @dataclass(frozen=True)
@@ -33,6 +33,10 @@ _EXT = {
     "audio/wav": "wav",
     "audio/mpeg": "mp3",
 }
+
+
+def extension(mime: str) -> str | None:
+    return _EXT.get(mime.split(";")[0])
 
 
 def object_path(family_id: UUID, heirloom_id: UUID, media_id: UUID, mime: str) -> str:

@@ -2,15 +2,20 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Camera, ImagePlus, Smile } from 'lucide-react'
 import { Avatar, Button, FormError } from '@/components/ui/chrome'
+import { api } from '@/lib/api'
 import { formatApiError } from '@/lib/apiError'
 import {
-  avatarApi,
-  avatarIllustration,
+  AVATAR_PRESETS,
+  presetFor,
+  presetLabel,
+  presetUrl,
   putWithProgress,
   validatePhoto,
+  type AvatarPreset,
   type AvatarStyle,
   type Profile,
 } from '@/lib/avatar'
+import { cn } from '@/lib/utils'
 import { useAuth } from '@/lib/auth'
 import { profileKey } from '@/lib/profile'
 
@@ -45,17 +50,22 @@ export function ProfilePictureButton({
   )
 }
 
-/** Bottom sheet: upload a photo, or go back to the illustrated avatar. */
+/** Bottom sheet: upload a photo, pick one of the six illustrations, or follow style + age. */
 export function AvatarChoiceSheet({
   open,
   hasCustom,
+  preset,
   onUpload,
+  onPickPreset,
   onUseIllustrated,
   onClose,
 }: {
   open: boolean
   hasCustom: boolean
+  /** The illustration picked by hand, if any. */
+  preset?: AvatarPreset | null
   onUpload: (file: File | undefined) => void
+  onPickPreset?: (preset: AvatarPreset) => void
   onUseIllustrated: () => void
   onClose: () => void
 }) {
@@ -90,14 +100,39 @@ export function AvatarChoiceSheet({
             }}
           />
         </label>
+        {onPickPreset && (
+          <fieldset className="mt-4">
+            <legend className="font-sans text-[1.2rem] text-muted">or pick one</legend>
+            <div className="mt-2 grid grid-cols-3 gap-3">
+              {AVATAR_PRESETS.map((p) => {
+                const current = !hasCustom && preset === p.id
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => onPickPreset(p.id)}
+                    aria-pressed={current}
+                    className={cn(
+                      'flex flex-col items-center gap-1 rounded-2xl border-2 p-2 font-sans text-[1.05rem]',
+                      current ? 'border-sun bg-sun/20' : 'border-transparent',
+                    )}
+                  >
+                    <img src={presetUrl(p.id)} alt="" className="size-16 rounded-full border-2 border-ink object-cover" />
+                    {p.label}
+                  </button>
+                )
+              })}
+            </div>
+          </fieldset>
+        )}
         <button
           type="button"
           onClick={onUseIllustrated}
           className="hand-box mt-3 flex min-h-16 w-full items-center gap-3 border-2 border-ink px-4 font-sans text-[1.4rem]"
         >
           <Smile className="size-6 shrink-0" strokeWidth={2.2} aria-hidden />
-          use illustrated avatar
-          {!hasCustom && <span className="ml-auto text-muted">current</span>}
+          match my age
+          {!hasCustom && !preset && <span className="ml-auto text-muted">current</span>}
         </button>
         <button
           type="button"
@@ -247,8 +282,13 @@ export function UploadProgress({ value }: { value: number }) {
 type Draft = {
   style: AvatarStyle
   setStyle: (s: AvatarStyle) => void
+  /** Picked by hand from the six; null follows style + age. Saves with the form. */
+  preset: AvatarPreset | null
+  pickPreset: (p: AvatarPreset) => void
   /** What the preview shows now: custom photo first, illustrated avatar otherwise. */
   preview: (age: number) => string | null
+  /** Caption under the preview. */
+  role: (age: number) => string
   hasCustom: boolean
   uploading: boolean
   progress: number
@@ -271,6 +311,7 @@ export function useAvatarDraft(profile: Profile | null | undefined): Draft {
   const qc = useQueryClient()
   const { session } = useAuth()
   const [style, setStyleState] = useState<AvatarStyle>('male')
+  const [preset, setPreset] = useState<AvatarPreset | null>(null)
   const [customUrl, setCustomUrl] = useState<string | null>(null)
   // Adopt the server profile once per account; later refetches must not
   // clobber a style the user just picked or a photo they just uploaded.
@@ -278,6 +319,7 @@ export function useAvatarDraft(profile: Profile | null | undefined): Draft {
   if (profile && seenId !== profile.user_id) {
     setSeenId(profile.user_id)
     setStyleState(profile.avatar_style ?? 'male')
+    setPreset(profile.avatar_preset ?? null)
     setCustomUrl(profile.avatar_url ?? null)
   }
   const [sheetOpen, setSheetOpen] = useState(false)
@@ -297,9 +339,11 @@ export function useAvatarDraft(profile: Profile | null | undefined): Draft {
     if (session) qc.setQueryData(profileKey(session.user.id), data)
   }
 
+  // Choosing a style means "match my age" again.
   function setStyle(s: AvatarStyle) {
     setError(null)
     setStyleState(s)
+    setPreset(null)
   }
 
   async function chooseFile(file: File | undefined) {
@@ -325,13 +369,13 @@ export function useAvatarDraft(profile: Profile | null | undefined): Draft {
     setProgress(0)
     setError(null)
     try {
-      const created = await avatarApi.POST('/api/profile/avatar', {
+      const created = await api.POST('/api/profile/avatar', {
         body: { photo_mime: blob.type || 'image/jpeg' },
       })
       if (created.error || !created.data)
         throw new Error(formatApiError(created.error, "we couldn't start the upload. try again."))
       await putWithProgress(created.data.upload_url, blob, setProgress)
-      const done = await avatarApi.POST('/api/profile/avatar/complete', {
+      const done = await api.POST('/api/profile/avatar/complete', {
         body: { avatar_path: created.data.avatar_path },
       })
       if (done.error || !done.data)
@@ -349,10 +393,22 @@ export function useAvatarDraft(profile: Profile | null | undefined): Draft {
   async function useIllustrated() {
     setSheetOpen(false)
     setError(null)
+    setPreset(null)
+    await dropPhoto()
+  }
+
+  async function pickPreset(p: AvatarPreset) {
+    setSheetOpen(false)
+    setError(null)
+    setPreset(p)
+    await dropPhoto()
+  }
+
+  async function dropPhoto() {
     if (!customUrl) return
     setUploading(true)
     try {
-      const { data, error } = await avatarApi.DELETE('/api/profile/avatar')
+      const { data, error } = await api.DELETE('/api/profile/avatar')
       if (error || !data)
         throw new Error(formatApiError(error, "we couldn't remove that photo. try again."))
       setCustomUrl(null)
@@ -367,7 +423,10 @@ export function useAvatarDraft(profile: Profile | null | undefined): Draft {
   return {
     style,
     setStyle,
-    preview: (age: number) => customUrl ?? avatarIllustration(style, age),
+    preset,
+    pickPreset,
+    preview: (age: number) => customUrl ?? presetUrl(preset ?? presetFor(style, age)),
+    role: (age: number) => (customUrl ? 'my photo' : presetLabel(preset ?? presetFor(style, age))),
     hasCustom: customUrl != null,
     uploading,
     progress,

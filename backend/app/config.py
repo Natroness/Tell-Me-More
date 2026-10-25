@@ -63,6 +63,11 @@ class Settings(BaseSettings):
     worker_concurrency: int = 8
     db_pool_size: int = 5
 
+    # Testing only: email-only instant login with no password or email link.
+    # The frontend shows a dev button when VITE_DEV_PASSWORDLESS_LOGIN=true and the
+    # backend accepts dev tokens only when this is true. Keep false in production.
+    dev_passwordless_login: bool = False
+
 
 @lru_cache
 def get_settings() -> Settings:

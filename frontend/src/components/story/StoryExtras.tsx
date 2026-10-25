@@ -32,7 +32,7 @@ const WORLD_STEPS: WorldStatus[] = [
 const WORLD_WORDS: Record<WorldStatus, string> = {
   queued: 'waiting to start',
   writing_scene: 'imagining the scene',
-  finding_reference: 'finding photos of the place',
+  finding_reference: 'preparing a picture of the place',
   generating: 'building the world',
   saving: 'saving the world',
   placing_spots: 'placing the memories',

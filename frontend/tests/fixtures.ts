@@ -73,9 +73,10 @@ export async function mockApp(page: Page, options: { signedIn?: boolean; owner?:
     ;(window as any).__contexts = []
     const OriginalContext = window.AudioContext
     window.AudioContext = class extends OriginalContext {
-      constructor(options?: AudioContextOptions) {
-        super(options)
+      createMediaStreamSource(stream: MediaStream) {
+        // Track microphone contexts; the question reader keeps a separate playback context.
         ;(window as any).__contexts.push(this)
+        return super.createMediaStreamSource(stream)
       }
     }
     navigator.mediaDevices.getUserMedia = async (constraints) => {
@@ -107,6 +108,10 @@ export async function mockApp(page: Page, options: { signedIn?: boolean; owner?:
     const method = request.method().toLowerCase()
     calls.push(`${method} ${path}`)
     let data: any
+    if (method === 'post' && path === '/api/speech') {
+      // Synthetic PCM keeps browser checks offline and avoids calling a paid voice provider.
+      return route.fulfill({ contentType: 'audio/L16;rate=24000;channels=1', body: Buffer.alloc(9600) })
+    }
     if (method !== 'get') {
       unexpected.push(`${method} ${path}`)
       return route.fulfill({ status: 500, json: { detail: 'Unexpected test mutation' } })

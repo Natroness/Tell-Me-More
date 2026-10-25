@@ -1,11 +1,18 @@
 import createClient, { type Middleware } from 'openapi-fetch'
 import type { components, paths } from '@/api-types'
+import { readDevSession } from './devAuth'
 import { supabase } from './supabase'
 
 const auth: Middleware = {
   async onRequest({ request }) {
     const { data } = await supabase.auth.getSession()
-    if (data.session) request.headers.set('Authorization', `Bearer ${data.session.access_token}`)
+    if (data.session) {
+      request.headers.set('Authorization', `Bearer ${data.session.access_token}`)
+      return request
+    }
+    // Testing-only email-only login fallback (no Supabase session).
+    const dev = readDevSession()
+    if (dev) request.headers.set('Authorization', `Bearer ${dev.access_token}`)
     return request
   },
 }

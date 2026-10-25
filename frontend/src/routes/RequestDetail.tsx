@@ -17,10 +17,9 @@ import {
 } from '@/components/ui/chrome'
 import { api, type Schemas } from '@/lib/api'
 import { formatApiError } from '@/lib/apiError'
-import { useFamily } from '@/lib/family'
 import { useLiveQuery } from '@/lib/realtime'
 import { useScreenTitle } from '@/lib/useScreenTitle'
-import { isOpen, statusWord, usePeople } from '@/routes/capture/data'
+import { isOpen, statusWord } from '@/routes/capture/data'
 
 type Action = 'accept' | 'decline' | 'cancel'
 
@@ -30,8 +29,6 @@ export function RequestDetail() {
   const { requestId } = useParams() as { requestId: string }
   const navigate = useNavigate()
   const qc = useQueryClient()
-  const { data: family, isLoading: familyLoading } = useFamily()
-  const { me, isLoading: peopleLoading } = usePeople(family?.id)
   const detail = useQuery({
     queryKey: ['request', requestId],
     queryFn: async () => {
@@ -64,7 +61,7 @@ export function RequestDetail() {
   })
 
   const r = detail.data
-  if (detail.isLoading || familyLoading || peopleLoading)
+  if (detail.isLoading)
     return (
       <ScreenBody screen="story-request">
         <Header title="story request" back="/requests" />
@@ -79,10 +76,11 @@ export function RequestDetail() {
       </ScreenBody>
     )
 
-  return r.storyteller_id === me ? (
+  // The API resolves the viewer in the request's own family; the active family can be a different one.
+  return r.viewer_role === 'storyteller' ? (
     <Incoming r={r} act={act} />
   ) : (
-    <Outgoing r={r} act={act} canCancel={r.listener_id === me} />
+    <Outgoing r={r} act={act} canCancel={r.viewer_role === 'listener'} />
   )
 }
 

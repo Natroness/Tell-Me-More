@@ -13,11 +13,14 @@ export function FamilyTreeView({
   meId,
   selectedId,
   onSelect,
+  avatars,
 }: {
   layout: TreeLayout
   meId: string | null
   selectedId: string | null
   onSelect: (id: string) => void
+  /** Person id → avatar image, when they picked one. */
+  avatars?: Map<string, string | null>
 }) {
   const viewport = useRef<HTMLDivElement>(null)
   const canvas = useRef<HTMLDivElement>(null)
@@ -127,7 +130,9 @@ export function FamilyTreeView({
             >
               <svg width={layout.width} height={layout.height} className="absolute inset-0 text-ink" aria-hidden>
                 {layout.connectors.map((c) => (
-                  <path key={c.key} d={c.d} fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
+                  <path key={c.key} d={c.d} fill="none" stroke="currentColor" strokeWidth={2}
+                    strokeDasharray={c.friend ? '1 7' : undefined} strokeLinecap="round"
+                    data-kind={c.friend ? 'friend' : 'family'} />
                 ))}
               </svg>
               {layout.nodes.map((n) => {
@@ -139,20 +144,28 @@ export function FamilyTreeView({
                     type="button"
                     onClick={() => onSelect(n.id)}
                     aria-pressed={selected}
-                    aria-label={isMe ? `${n.name} (you)` : n.name}
+                    aria-label={isMe ? `${n.name} (you)` : `${n.name} (${n.role})`}
+                    data-person-id={n.id}
                     title={n.name}
                     className="absolute flex w-24 -translate-x-1/2 flex-col items-center gap-1"
                     style={{ left: n.x, top: n.y - NODE / 2 }}
                   >
+                    <span className="absolute bottom-full mb-1 max-w-28 rounded bg-paper px-1.5 text-center font-sans text-[1rem] leading-tight text-muted">
+                      {n.role}
+                    </span>
                     <span
                       className={cn(
-                        'grid size-16 place-items-center rounded-full border-2 border-ink font-hand text-[1.6rem] leading-none',
+                        'grid size-16 place-items-center overflow-hidden rounded-full border-2 border-ink font-hand text-[1.6rem] leading-none',
                         isMe ? 'bg-sun text-black' : 'bg-paper text-ink',
                         selected && 'outline-4 outline-offset-2',
                         selected && (isMe ? 'outline-ink' : 'outline-sun'),
                       )}
                     >
-                      {initials(n.name)}
+                      {avatars?.get(n.id) ? (
+                        <img src={avatars.get(n.id)!} alt="" className="size-full object-cover" />
+                      ) : (
+                        initials(n.name)
+                      )}
                     </span>
                     <span
                       className={cn(

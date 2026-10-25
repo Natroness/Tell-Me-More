@@ -1,10 +1,10 @@
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { Play, Plus } from 'lucide-react'
 import { Link, useLocation } from 'react-router'
-import { Button, Chip, EmptyState, ErrorState, Header, Loading, Notice, ScreenBody } from '@/components/ui/chrome'
+import { Button, Chip, Disclosure, EmptyState, ErrorState, FormError, Header, Loading, Notice, ScreenBody } from '@/components/ui/chrome'
 import { api } from '@/lib/api'
 import { formatApiError } from '@/lib/apiError'
-import { useFamily, useFamilyTree } from '@/lib/family'
+import { useChooseFamily, useFamilies, useFamily, useFamilyTree } from '@/lib/family'
 import { useScreenTitle } from '@/lib/useScreenTitle'
 import type { MemorySummary } from './data'
 import { PhotoThumb } from './parts'
@@ -31,6 +31,8 @@ export function MemoriesList() {
     },
     getNextPageParam: (last, all) => (last.length === PAGE ? all.length * PAGE : undefined),
   })
+  const families = useFamilies()
+  const others = families.data?.filter((f) => f.id !== familyId) ?? []
 
   const header = <Header title="family memories" back="/" />
   if (family.isLoading) return <ScreenBody>{header}<Loading /></ScreenBody>
@@ -59,6 +61,12 @@ export function MemoriesList() {
   return (
     <ScreenBody screen="family-memories">
       {header}
+      {family.data && (
+        <p className="-mt-3 mb-1 text-center font-sans text-[1.15rem] leading-snug break-words text-muted">
+          {family.data.name}
+        </p>
+      )}
+      {others.length > 0 && <FamilySwitcher others={others.map((f) => ({ id: f.id, name: f.name }))} />}
       <div className="flex flex-1 flex-col gap-5">
         {notice && <Notice tone="success">{notice}</Notice>}
         {memories.isLoading ? (
@@ -106,6 +114,25 @@ export function MemoriesList() {
         </div>
       </div>
     </ScreenBody>
+  )
+}
+
+/** Other families you belong to. Memories are per-family, so switch to see theirs. */
+function FamilySwitcher({ others }: { others: { id: string; name: string }[] }) {
+  const choose = useChooseFamily()
+  return (
+    <Disclosure summary={`switch family (${others.length + 1} families)`} className="mb-1">
+      <ul className="flex flex-col gap-2">
+        {others.map((f) => (
+          <li key={f.id}>
+            <Button tone="secondary" disabled={choose.isPending} onClick={() => choose.mutate(f.id)}>
+              {f.name}
+            </Button>
+          </li>
+        ))}
+      </ul>
+      <FormError>{choose.error?.message}</FormError>
+    </Disclosure>
   )
 }
 

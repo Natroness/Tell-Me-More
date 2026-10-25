@@ -44,7 +44,7 @@ function destination(n: Note): string | null {
     case 'family_tree':
       return '/family'
     case 'family_memory':
-      return '/memories'
+      return `/memories/${n.destination_id}`
     default:
       return null
   }
@@ -99,6 +99,7 @@ export function Notifications() {
       })
       setOpening(null)
       qc.invalidateQueries({ queryKey: ['notifications'] })
+      if (n.type === 'memory_added') qc.invalidateQueries({ queryKey: ['memories'] })
       if (apiError && !to) {
         setError(formatApiError(apiError, 'we could not mark that as read. try again.'))
         return

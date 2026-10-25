@@ -293,7 +293,9 @@ create table relationship (                   -- directed edges: a is <kind> of 
   family_id uuid not null references family(id) on delete cascade,
   a uuid not null references person(id) on delete cascade,
   b uuid not null references person(id) on delete cascade,
-  kind text not null check (kind in ('parent','spouse','sibling')),
+  kind text not null check (kind in ('parent','grandparent','spouse','sibling','friend')),
+  a_role text,                                -- optional chosen label: dad, grandma, etc.
+  b_role text,                                -- optional chosen label: son, grandchild, etc.
   primary key (a, b, kind)
 );
 
@@ -424,6 +426,16 @@ create table job (
 
 Row-level security: every table is readable and writable only by users with a `member` row for its `family_id` (via heirloom → family where needed). Story pages can also be opened by anyone holding the family's invite link, read-only.
 
+Family-tree placement uses accepted connections and existing people/memberships:
+`GET/POST /api/families/{family_id}/tree/connections`. The selected person is described
+relative to the selected anchor; parent/grandparent edges always point from older to younger
+generation. Roles appear above nodes; friends use dotted links and a separate side column.
+The API checks caller membership, accepted connection, both people's family, duplicate edges,
+parent limits, cycles, and generation consistency under a family-row lock. Repeated placement
+refines the selected person's label without replacing the anchor's role. Invitations use the
+same choices and still require recipient acceptance. Schema update:
+`20261025134044_family_tree_connections.sql`.
+
 ### 4.3 Story blocks
 
 ```python
@@ -545,7 +557,7 @@ Policy, written into the prompt: prefer a `follow_up` when the last answer named
 
 - Client opens an `AudioContext` at 16 kHz (the browser resamples the mic) and an `AudioWorklet` collects mono frames, encoded to 16-bit PCM WAV on stop, which is what Muse Voice Transcribe reportedly wants. See `frontend/src/lib/recorder.ts`.
 - **Streaming (default):** while the narrator speaks, the phone streams 16-bit PCM over a WebSocket to `/api/interviews/{id}/answers/{turn}/stream` (`routers/answer_stream.py`). The backend relays it to Meta's realtime ASR (`wss://api.meta.ai/v1/asr/realtime`, `PUSH_TO_TALK`, family names as `keywords`) and sends partials back as live captions. On Done, the final transcript arrives in about 0.15 s. We save the turn text and segments while the next question is written, then reply `done` with the question on the same socket (or `ended` after the last one), and only then upload the WAV for story playback. Segment times come from the partials: the first partial that completes sentence k carries `audioProcessedMs`, which marks where sentence k ended (`segments.timed_segments`).
-- **Spoken loop:** the phone reads each question aloud with its own voice (`speechSynthesis`; Meta has no speech output), opens the mic when it finishes, and ends the answer after 2 s of quiet once it has heard speech. The noise floor comes from the first 400 ms. A big I'm done button, Hear the question again, and End interview stay available. The first tap unlocks speech on iPhone. The mic is released between answers so the voice plays at full volume.
+- **Spoken loop:** the phone reads each English question aloud in Gemini's Sulafat voice, streamed as raw PCM from `POST /api/speech` and played through Web Audio as it arrives (about 1 s to first sound); when that fails, takes over 4 s to start, or the language isn't English, it falls back to the phone's own voice (`speechSynthesis`). It opens the mic when it finishes, and ends the answer after 2 s of quiet once it has heard speech. The noise floor comes from the first 400 ms. A big I'm done button, Hear the question again, and End interview stay available. The first tap unlocks speech on iPhone. The mic is released between answers so the voice plays at full volume.
 - **Batch (fallback):** if the socket fails, errors, or doesn't answer within 8 s, the phone uploads its own WAV and calls `/complete`, which runs `transcribe_turn`. Both paths end in `transcribe_turn.save_answer`.
 - The 16 kHz WAV is both the ASR input and the playback file. At about 32 KB per second, a 2-minute answer is under 4 MB, so one file is simpler than two.
 - If ASR returns no timestamps, fall back to one segment per sentence with timestamps estimated from character offsets. Tap-to-play still lands within a couple of seconds.

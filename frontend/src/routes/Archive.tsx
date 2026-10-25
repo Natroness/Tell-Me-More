@@ -138,7 +138,7 @@ export function Archive() {
   if (phase.name === 'uploading' || phase.name === 'reading')
     return (
       <ScreenBody screen="find-its-story">
-        <Header title="looking for its story…" back={false} />
+        <Header title="looking for its story…" back="/" />
         <CapturePreview cap={cap!} className="mx-auto w-2/3" />
         <Loading label={phase.name === 'uploading' ? 'saving your photo…' : 'reading the photo and checking your family’s objects…'} />
       </ScreenBody>
@@ -164,7 +164,7 @@ export function Archive() {
   if (phase.name === 'slow')
     return (
       <ScreenBody screen="find-its-story">
-        <Header title="still looking…" back={false} />
+        <Header title="still looking…" back="/" />
         <CapturePreview cap={cap!} className="mx-auto w-2/3" />
         <Notice title="this is taking longer than usual" className="mt-5">
           your photo is saved. you can keep waiting, or ask someone about it now.
@@ -181,7 +181,7 @@ export function Archive() {
   if (phase.name === 'unreadable' || phase.candidates.length === 0)
     return (
       <ScreenBody screen="find-its-story">
-        <Header title={phase.name === 'unreadable' ? 'we saved it' : 'a new object'} back={false} />
+        <Header title={phase.name === 'unreadable' ? 'we saved it' : 'a new object'} back="/" />
         <CapturePreview cap={cap!} className="mx-auto w-2/3" />
         {phase.name === 'unreadable' ? (
           <Notice title="we couldn't read the photo clearly" className="mt-5">
@@ -210,7 +210,7 @@ export function Archive() {
 
   return (
     <ScreenBody screen="confirm-object">
-      <Header title={candidates.length === 1 ? `is this the same ${noun}?` : 'is it one of these?'} back={false} />
+      <Header title={candidates.length === 1 ? `is this the same ${noun}?` : 'is it one of these?'} back="/" />
       <div className="grid grid-cols-2 gap-3">
         <figure className="flex flex-col gap-1.5">
           <CapturePreview cap={cap!} />

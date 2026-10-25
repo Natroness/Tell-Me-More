@@ -47,7 +47,7 @@ export function FamilyAvailabilityScreen() {
                 to={`/availability/person/${p.person_id}`}
                 className="hand-box flex min-h-20 items-center gap-3 border-2 border-ink p-3 transition-colors hover:bg-ink/5"
               >
-                <Avatar name={p.display_name} />
+                <Avatar name={p.display_name} src={p.avatar_url} />
                 <span className="flex min-w-0 flex-1 flex-col gap-1">
                   <span className="font-hand text-[1.6rem] leading-tight break-words">
                     {p.display_name}

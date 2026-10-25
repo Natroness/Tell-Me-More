@@ -234,7 +234,7 @@ function EventForm({ familyId, eventId, initial }: { familyId: string; eventId?:
                       on ? 'border-ink bg-sun text-black' : 'border-ink/40',
                     )}
                   >
-                    <Avatar name={p.display_name} size="sm" />
+                    <Avatar name={p.display_name} src={p.avatar_url} size="sm" />
                     <span className="break-words">{p.id === tree.data?.me ? 'me' : p.display_name}</span>
                   </button>
                 </li>

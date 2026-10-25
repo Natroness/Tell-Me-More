@@ -48,7 +48,7 @@ async def _load(conn: asyncpg.Connection, world_id: UUID) -> dict[str, Any] | No
     row = await conn.fetchrow(
         """
         select w.id, w.family_id, w.heirloom_id, w.status, w.scene_prompt, w.input_mode,
-               w.provider_operation_id, w.assets, w.hotspots, w.reference,
+               w.provider_operation_id, w.assets, w.hotspots, w.reference, w.input_audit,
                m.storage_path as photo_path, m.mime as photo_mime,
                coalesce(h.title, h.category, 'a family heirloom') as object_name,
                (select p.display_name from interview i join person p on p.id = i.narrator_id
@@ -74,6 +74,8 @@ async def run(world_id: UUID) -> None:
         if w["scene_prompt"] is None:
             await _write_scene(w)
         if w["assets"] is None:
+            if w["provider_operation_id"] is None:
+                await _prepare_reference(w)
             await _save(w, await _generate(w))
     except Exception as e:
         await _set(world_id, status="failed", error=str(e)[:500] or repr(e))
@@ -86,9 +88,9 @@ async def _photo(w: dict[str, Any]) -> Blob:
     return Blob(data=await storage.download("photos", w["photo_path"]), mime=w["photo_mime"])
 
 
-async def _source_image(w: dict[str, Any]) -> Blob | None:
+async def _source_image(w: dict[str, Any]) -> Blob:
     """What World Labs builds from besides the text: the family's photo when it shows the place,
-    a real photo of the place found on the web, or nothing."""
+    or a validated scene reference prepared before generation."""
     match w["input_mode"]:
         case "image":
             return await _photo(w)
@@ -96,7 +98,7 @@ async def _source_image(w: dict[str, Any]) -> Blob | None:
             ref = ReferencePhoto(**w["reference"])
             return Blob(data=await storage.download("generated", ref.path), mime=ref.mime)
         case _:
-            return None
+            raise ValueError("A scene reference image is required before building a world")
 
 
 async def _write_scene(w: dict[str, Any]) -> None:
@@ -127,48 +129,90 @@ async def _write_scene(w: dict[str, Any]) -> None:
     if not used:
         raise ValueError("not enough story details yet")
     spots = [s.model_dump(mode="json") for s in _spots(spec, by_id)]
-    reference = await _find_reference(w, spec) if spec.input_mode == "text" else None
-    # Saved together, so a job that dies mid-search simply writes the scene again.
     scene = {
         "scene_prompt": spec.scene_prompt,
-        "input_mode": "reference" if reference else spec.input_mode,
+        "input_mode": spec.input_mode,
         "hotspots": spots,
-        "reference": reference.model_dump(mode="json") if reference else None,
+        "reference": None,
+        "input_audit": {
+            "version": 2,
+            "source_classification": spec.input_mode,
+            "place_query": spec.place_query,
+            "place_name": spec.place_name,
+        },
     }
     await _set(w["id"], used_fact_ids=used, **scene)
     w.update(scene)
 
 
-async def _find_reference(w: dict[str, Any], spec: SceneSpec) -> ReferencePhoto | None:
-    """A real photo of the place for a close-up's world. Finding none, or failing to search,
-    leaves the world to text, so this never fails it."""
-    if not spec.place_query:
-        return None
+async def _prepare_reference(w: dict[str, Any]) -> None:
+    """Never silently fall back to text, including cached plans created by older workers."""
+    audit = dict(w.get("input_audit") or {})
+    audit["version"] = 2
+    if w["input_mode"] == "reference" and w.get("reference"):
+        try:
+            image = await _source_image(w)
+            audit.update(
+                source=ReferencePhoto(**w["reference"]).via,
+                image=await asyncio.to_thread(world_reference.image_details, image),
+            )
+            await _set(w["id"], input_audit=audit)
+            w["input_audit"] = audit
+            return
+        except (ValueError, OSError, httpx.HTTPError):
+            audit["cached_reference"] = "invalid"
+    if w["input_mode"] == "image":
+        try:
+            image = await _photo(w)
+            audit.update(
+                source="family_photo",
+                image=await asyncio.to_thread(world_reference.image_details, image),
+            )
+            await _set(w["id"], input_audit=audit)
+            w["input_audit"] = audit
+            return
+        except ValueError:
+            audit["family_photo"] = "not_a_usable_landscape_image"
+    query = audit.get("place_query") or re.sub(r"\s+", " ", w["scene_prompt"]).strip()[:120]
+    audit["effective_query"] = query
     await _set(w["id"], status="finding_reference")
     try:
-        found = await world_reference.find(
-            place_query=spec.place_query,
-            place_name=spec.place_name,
-            scene_prompt=spec.scene_prompt,
-        )
-        if found is None:
-            return None
-        result, image = found
+        try:
+            found = await world_reference.find(
+                place_query=query,
+                place_name=audit.get("place_name"),
+                scene_prompt=w["scene_prompt"],
+                audit=audit,
+            )
+        except Exception as exc:
+            audit["web_reference"] = "failed"
+            audit["web_error"] = type(exc).__name__
+            found = None
+        if found:
+            result, image = found
+            metadata = dict(
+                url=result.url, page_url=result.page_url, title=result.title, via=result.via
+            )
+            audit["image"] = await asyncio.to_thread(world_reference.image_details, image)
+        else:
+            image = await world_reference.generate(w["scene_prompt"], audit)
+            metadata = dict(title="AI-generated scene reference", via="generated")
         path = storage.world_path(
             w["family_id"], w["heirloom_id"], w["id"], "reference", image.mime.split("/")[-1]
         )
         await storage.upload("generated", path, image.data, image.mime)
+        reference = ReferencePhoto(path=path, mime=image.mime, **metadata)
+        audit["source"] = reference.via
+        scene = {
+            "reference": reference.model_dump(mode="json"),
+            "input_mode": "reference",
+            "input_audit": audit,
+        }
+        await _set(w["id"], **scene)
+        w.update(scene)
     except Exception:
-        log.warning("finding a reference photo for world %s failed", w["id"], exc_info=True)
-        return None
-    return ReferencePhoto(
-        path=path,
-        mime=image.mime,
-        url=result.url,
-        page_url=result.page_url,
-        title=result.title,
-        via=result.via,
-    )
+        await _set(w["id"], input_audit=audit)
+        raise
 
 
 def _spots(spec: SceneSpec, facts: dict[UUID, asyncpg.Record]) -> list[Hotspot]:
@@ -206,9 +250,13 @@ async def _generate(w: dict[str, Any]) -> WorldAssets:
     world = providers.get_providers().world
     deadline = time.monotonic() + s.immersive_timeout_seconds
     op_id = w["provider_operation_id"]
-    await _set(w["id"], status="generating", model=s.worldlabs_model)
+    await _set(w["id"], status="generating")
     if op_id is None:
+        await _set(w["id"], model=s.worldlabs_model)
         image = await _source_image(w)
+        audit = dict(w.get("input_audit") or {})
+        audit.update(request_type="image", requested_model=s.worldlabs_model)
+        await _set(w["id"], input_audit=audit)
         while op_id is None:
             try:
                 op_id = await world.start(
@@ -218,6 +266,7 @@ async def _generate(w: dict[str, Any]) -> WorldAssets:
                 await _backoff(e, deadline)
         # Saved before polling: if this job dies now, the next run polls this same world.
         await _set(w["id"], provider_operation_id=op_id)
+        w["provider_operation_id"] = op_id
 
     while True:
         try:

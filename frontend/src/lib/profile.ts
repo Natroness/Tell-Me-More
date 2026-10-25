@@ -9,10 +9,10 @@ export function profileKey(userId: string) {
 }
 
 export function useProfile() {
-  const { ready, session } = useAuth()
+  const { ready, session, devSession } = useAuth()
   return useQuery({
     queryKey: session ? profileKey(session.user.id) : ['profile', 'signed-out'],
-    enabled: ready && !!session && supabaseConfigured,
+    enabled: ready && !!session && (supabaseConfigured || !!devSession),
     staleTime: 30_000,
     retry: false,
     refetchOnWindowFocus: false,
