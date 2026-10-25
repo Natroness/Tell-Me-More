@@ -42,7 +42,10 @@ async def save_answer(
     text: str,
     segments: list[TranscriptSegment],
     duration_ms: int | None,
+    *,
+    queue_next: bool = True,
 ) -> None:
+    """queue_next=False when the caller asks the next question itself (the streaming path)."""
     async with conn.transaction():
         await conn.execute("update turn set text = $2 where id = $1", turn_id, text)
         await conn.execute("delete from segment where turn_id = $1", turn_id)
@@ -59,7 +62,8 @@ async def save_answer(
             "and state in ('listening', 'thinking')",
             ctx["interview_id"],
         )
-        await enqueue(conn, "next_question", ctx["interview_id"], ctx["family_id"])
+        if queue_next:
+            await enqueue(conn, "next_question", ctx["interview_id"], ctx["family_id"])
 
 
 async def run(turn_id: UUID) -> None:

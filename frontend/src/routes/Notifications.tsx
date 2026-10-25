@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router'
+import { BottomNav } from '@/components/ui/Nav'
 import { ScreenHeader } from '@/components/ui/Screen'
 import { api } from '@/lib/api'
 
@@ -52,6 +53,7 @@ export function Notifications() {
           {!n.read_at && <p className="text-sm text-muted">New</p>}
         </button>
       ))}
+      <BottomNav />
     </main>
   )
 }

@@ -7,7 +7,11 @@ Answers stream through the real WebSocket handler (routers/answer_stream.py) at 
 `--batch` uploads them for transcribe_turn instead. The script has no Supabase login, so it skips
 only the membership check there; auth is covered by tests and a forged-token probe.
 
-Run:     uv run python -m scripts.e2e_pipeline [--answers 3] [--batch]
+Streamed answers end like the app ends them: after `--silence` seconds of quiet (default 2.0, the
+app's END_SILENCE_MS). The next question comes back on the socket; its latency is reported from
+the end of speech and from the moment the answer ended.
+
+Run:     uv run python -m scripts.e2e_pipeline [--answers 3] [--batch] [--silence 2.0]
 Cleanup: uv run python -m scripts.e2e_pipeline --cleanup <family_id>
 """
 
@@ -53,14 +57,16 @@ class Answer(BaseModel):
 
 
 class MicSocket:
-    """Plays a WAV into stream_answer the way the phone does: 80 ms PCM frames in real time,
-    then `end`. Records what the server sends back and when."""
+    """Plays a WAV into stream_answer the way the phone does: 80 ms PCM frames in real time, then
+    `silence_s` of quiet, then `end`. Records what the server sends back and when."""
 
     FRAME_BYTES = 16_000 * 2 * 80 // 1000
 
-    def __init__(self, wav: bytes) -> None:
+    def __init__(self, wav: bytes, silence_s: float = 0) -> None:
         with wave.open(io.BytesIO(wav)) as w:
-            self.pcm = w.readframes(w.getnframes())
+            speech = w.readframes(w.getnframes())
+        self.speech_s = len(speech) / 32_000
+        self.pcm = speech + bytes(int(silence_s * 32_000) // 2 * 2)
         self.offset = 0
         self.started: float | None = None
         self.sent: list[tuple[float, dict]] = []
@@ -114,7 +120,7 @@ async def job_failed(conn, family_id: UUID) -> None:
         raise RuntimeError(f"jobs failed: {[(f['kind'], f['error']) for f in failed]}")
 
 
-async def run(n_answers: int, batch: bool) -> None:
+async def run(n_answers: int, batch: bool, silence_s: float) -> None:
     p = get_providers()
     family_id, narrator_id, heirloom_id, photo_id = uuid4(), uuid4(), uuid4(), uuid4()
     user_id = uuid4()  # stages never check membership; no auth user is created
@@ -249,17 +255,29 @@ async def run(n_answers: int, batch: bool) -> None:
                 if batch:
                     await enqueue(conn, "transcribe_turn", turn_id, family_id)
             if not batch:
-                mic = MicSocket(audio)
+                mic = MicSocket(audio, silence_s)
                 await answer_stream.stream_answer(mic, interview_id, turn_id)
                 partials = sum(d["type"] == "partial" for _, d in mic.sent)
-                done_at = next((t for t, d in mic.sent if d["type"] == "done"), None)
-                if done_at is None:
+                done = next(((t, d) for t, d in mic.sent if d["type"] == "done"), None)
+                if done is None:
                     raise RuntimeError(f"stream did not finish: {mic.sent[-3:]}")
+                done_at, reply_msg = done
+                speech_end = mic.started + mic.speech_s
                 say(
-                    f"  streamed {len(mic.pcm) / 32_000:.1f}s of speech, {partials} live captions; "
-                    f"transcript saved {done_at - mic.ended_at:.2f}s after Done"
+                    f"  streamed {mic.speech_s:.1f}s of speech + {silence_s:.1f}s quiet, "
+                    f"{partials} live captions"
                 )
-                answered = mic.ended_at
+                say(
+                    f"  next question {done_at - mic.ended_at:.2f}s after the answer ended, "
+                    f"{done_at - speech_end:.2f}s after they stopped talking: "
+                    f"{(reply_msg['question'] or {}).get('text')!r}"
+                )
+                heard = await conn.fetchval("select text from turn where id = $1", turn_id)
+                say(f"  ASR heard: {heard}")
+                if reply_msg["ended"]:
+                    say("  the interview ended itself")
+                    break
+                continue
 
             async def asking() -> bool:
                 await job_failed(conn, family_id)
@@ -386,6 +404,13 @@ async def cleanup(family_id: UUID) -> None:
                 )
     async with db.pool().acquire() as conn:
         await conn.execute("delete from job where family_id = $1", family_id)
+        # Interviews point at their narrator and turns at their audio without cascading, so
+        # interviews go first.
+        await conn.execute(
+            "delete from interview where heirloom_id in "
+            "(select id from heirloom where family_id = $1)",
+            family_id,
+        )
         await conn.execute("delete from family where id = $1", family_id)
     say(f"deleted family {family_id} and {len(rows)} stored files")
 
@@ -395,6 +420,7 @@ async def main() -> None:
     ap.add_argument("--answers", type=int, default=3)
     ap.add_argument("--cleanup", type=UUID)
     ap.add_argument("--batch", action="store_true", help="upload answers instead of streaming")
+    ap.add_argument("--silence", type=float, default=2.0, help="quiet that ends an answer")
     args = ap.parse_args()
     await db.open_pool(get_settings().database_url)
     stop = asyncio.Event()
@@ -411,7 +437,7 @@ async def main() -> None:
 
             answer_stream.require_member = no_membership_check
             answer_stream.user_from_token = lambda token: None
-        await run(args.answers, args.batch)
+        await run(args.answers, args.batch, args.silence)
     finally:
         stop.set()
         if worker:

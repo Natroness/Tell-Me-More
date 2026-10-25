@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { ScreenHeader } from '@/components/ui/Screen'
 import { setCapture } from '@/lib/captureStore'
+import { buzz, HAPTIC } from '@/lib/haptics'
 
 const LIMIT_S = 60
 
@@ -78,6 +79,7 @@ export function Capture() {
     }
     recRef.current = rec
     rec.start()
+    buzz(HAPTIC.start)
     setRecording(true)
     setElapsed(0)
     timerRef.current = window.setInterval(() => {
@@ -92,6 +94,7 @@ export function Capture() {
     if (timerRef.current) window.clearInterval(timerRef.current)
     timerRef.current = null
     setRecording(false)
+    buzz(HAPTIC.stop)
     if (recRef.current?.state !== 'inactive') recRef.current?.stop()
   }
 

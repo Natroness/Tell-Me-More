@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     meta_api_key: str = ""
     meta_base_url: str = ""
     meta_chat_model: str = "muse-spark-1.1"
+    # For calls someone is waiting on (interview questions, object matching); empty uses the chat
+    # model. Muse Spark 1.3 at minimal effort writes a question in ~1.3 s, 1.1 in ~2.5 s.
+    meta_fast_model: str = ""
     meta_asr_model: str = "muse-voice-transcribe-1.0"
     meta_asr_url: str = "https://api.meta.ai/v1/asr/transcribe"
     meta_asr_stream_url: str = "wss://api.meta.ai/v1/asr/realtime"

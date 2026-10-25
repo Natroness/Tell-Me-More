@@ -28,9 +28,9 @@ def _client(s: Settings) -> AsyncOpenAI:
 
 
 class MetaLLM:
-    def __init__(self, s: Settings) -> None:
+    def __init__(self, s: Settings, model: str | None = None) -> None:
         self._client = _client(s)
-        self._model = s.meta_chat_model
+        self._model = model or s.meta_chat_model
 
     async def json(
         self,
@@ -55,6 +55,13 @@ class MetaLLM:
             },
         )
         return schema.model_validate_json(resp.choices[0].message.content or "")
+
+    async def text(self, *, system: str, messages: list[Msg], effort: Effort | None = None) -> str:
+        extra = {"reasoning_effort": effort} if effort else {}
+        resp = await self._client.chat.completions.create(
+            model=self._model, messages=[{"role": "system", "content": system}, *messages], **extra
+        )
+        return (resp.choices[0].message.content or "").strip()
 
 
 def _image_part(image: Blob) -> dict:

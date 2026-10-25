@@ -1,14 +1,18 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router'
 import { BigButton, ScreenHeader } from '@/components/ui/Screen'
+import { BottomNav } from '@/components/ui/Nav'
 import { api } from '@/lib/api'
 import { headingSize, useDisplayMode } from '@/lib/displayMode'
 import { useFamily } from '@/lib/family'
+import { firstName, useMe } from '@/lib/me'
 
 /** Brief §3A: Discover heading, prominent camera, 4 destinations. */
 export function Home() {
   const { mode } = useDisplayMode()
   const { data: family } = useFamily()
+  const me = useMe()
+  const name = firstName(me.data)
   const unread = useQuery({
     queryKey: ['notifications'],
     queryFn: async () => (await api.GET('/api/notifications')).data ?? [],
@@ -30,6 +34,7 @@ export function Home() {
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-xl flex-col gap-4 px-4 py-8">
+      {name && <p className="text-lg text-muted">Hi, {name}</p>}
       <h1 className={`font-serif ${headingSize(mode)}`}>Discover an object&apos;s story</h1>
       <Link
         to="/capture"
@@ -55,6 +60,7 @@ export function Home() {
           Settings · Display mode
         </Link>
       </div>
+      <BottomNav />
     </main>
   )
 }

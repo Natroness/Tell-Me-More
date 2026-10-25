@@ -45,10 +45,11 @@ async def run(heirloom_id: UUID) -> None:
             ],
         )
         await conn.execute(
-            "update heirloom set title = coalesce(title, $2), category = coalesce(category, $3) "
-            "where id = $1",
+            "update heirloom set title = coalesce(title, $2), category = coalesce(category, $3), "
+            "signature = $4 where id = $1",
             heirloom_id,
             reading.suggested_title,
             reading.category,
+            reading.signature,
         )
         await set_output(conn, "analyze_object", heirloom_id, reading.model_dump(mode="json"))

@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from app.auth import CurrentUser, User, family_of_heirloom, require_member
 from app.db import pool
 from app.jobs.queue import enqueue
+from app.jobs.stages.next_question import MAX_QUESTIONS
 from app.models import Coverage, InterviewState
 from app.storage import object_path, signed_upload_url
 
@@ -25,6 +26,7 @@ class Interview(BaseModel):
     language: str
     state: InterviewState
     coverage: Coverage
+    max_questions: int = MAX_QUESTIONS
 
 
 class Turn(BaseModel):

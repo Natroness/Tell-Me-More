@@ -2,6 +2,8 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { StoryView } from '@/components/story/StoryView'
+import { BottomNav } from '@/components/ui/Nav'
+import { ScreenHeader } from '@/components/ui/Screen'
 import { api } from '@/lib/api'
 import { useLiveQuery } from '@/lib/realtime'
 
@@ -50,6 +52,7 @@ export function Heirloom() {
 
   return (
     <main className="mx-auto flex max-w-2xl flex-col gap-6 px-4 py-8">
+      <ScreenHeader title="Heirloom" />
       {heirloom.cover_url && <img src={heirloom.cover_url} className="rounded-xl" />}
       {story.data ? (
         <StoryView story={story.data} />
@@ -85,6 +88,7 @@ export function Heirloom() {
           </div>
         </>
       )}
+      <BottomNav />
     </main>
   )
 }

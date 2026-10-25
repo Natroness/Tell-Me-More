@@ -1,18 +1,23 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { Link } from 'react-router'
 import { BigButton, ScreenHeader } from '@/components/ui/Screen'
 import { api } from '@/lib/api'
-import { useFamily } from '@/lib/family'
 
-/** Brief §3E: large cards, preview + message + Send; invite fallback preserves capture. */
+/** Brief §3E: search-first storyteller picker (0–5 ranked results) + cards + Send. */
 export function ChooseStoryteller() {
   const { heirloomId } = useParams() as { heirloomId: string }
   const navigate = useNavigate()
-  const { data: family } = useFamily()
+  const [search, setSearch] = useState('')
+  const [debounced, setDebounced] = useState('')
   const [selected, setSelected] = useState('')
   const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebounced(search.trim()), 250)
+    return () => window.clearTimeout(t)
+  }, [search])
 
   const detail = useQuery({
     queryKey: ['heirloom', heirloomId],
@@ -21,12 +26,21 @@ export function ChooseStoryteller() {
         params: { path: { heirloom_id: heirloomId } },
       })).data,
   })
+  const familyId = detail.data?.heirloom.family_id
   const people = useQuery({
-    queryKey: ['people', family?.id],
-    enabled: !!family,
+    queryKey: ['people', familyId],
+    enabled: !!familyId && !debounced,
     queryFn: async () =>
       (await api.GET('/api/families/{family_id}/people', {
-        params: { path: { family_id: family!.id } },
+        params: { path: { family_id: familyId! } },
+      })).data ?? [],
+  })
+  const results = useQuery({
+    queryKey: ['people-search', familyId, debounced],
+    enabled: !!familyId && debounced.length > 0,
+    queryFn: async () =>
+      (await api.GET('/api/families/{family_id}/people/search', {
+        params: { path: { family_id: familyId! }, query: { q: debounced, limit: 5 } },
       })).data ?? [],
   })
 
@@ -43,7 +57,9 @@ export function ChooseStoryteller() {
     onSuccess: (r) => navigate(`/request-confirm/${r.id}`),
   })
 
-  const others = (people.data ?? []).filter((p) => p.display_name)
+  const searching = debounced.length > 0
+  const list = (searching ? (results.data ?? []) : (people.data ?? [])).filter((p) => p.relation !== 'you')
+  const loading = searching ? results.isLoading : people.isLoading
 
   return (
     <main className="mx-auto flex max-w-xl flex-col gap-4 px-4 py-6">
@@ -52,23 +68,46 @@ export function ChooseStoryteller() {
       {detail.data?.heirloom.cover_url && (
         <img src={detail.data.heirloom.cover_url} className="rounded-xl" alt="Object" />
       )}
-      {others.length === 0 ? (
+      <input
+        value={search}
+        onChange={(e) => {
+          setSearch(e.target.value)
+          setSelected('')
+        }}
+        placeholder="Search by name — e.g. John"
+        aria-label="Search family by name"
+        className="rounded-lg border border-ink/20 bg-white px-4 py-3"
+      />
+      {searching ? (
+        <p className="text-sm text-muted">
+          {loading
+            ? 'Searching…'
+            : results.data?.length
+              ? `Top ${results.data.length} match${results.data.length > 1 ? 'es' : ''} — pick by full name.`
+              : 'No matches. Try another spelling, or invite them below.'}
+        </p>
+      ) : (
+        <p className="text-sm text-muted">Type a name to narrow it down, or pick below.</p>
+      )}
+      {list.length === 0 && !loading ? (
         <>
           <p className="text-muted">
-            No family members connected yet. Your capture is saved — invite someone first.
+            {searching
+              ? 'Nobody matches that name yet. Your capture is saved — invite them first.'
+              : 'No family members connected yet. Your capture is saved — invite someone first.'}
           </p>
           <BigButton to="/family" primary>
-            Invite a family member
+            Add family or friends
           </BigButton>
         </>
       ) : (
         <>
           <div className="grid grid-cols-2 gap-3">
-            {others.map((p) => (
+            {list.map((p) => (
               <button
                 key={p.id}
                 onClick={() => setSelected(p.id)}
-                className={`flex flex-col items-center gap-2 rounded-xl border p-4 ${
+                className={`flex flex-col items-center gap-1 rounded-xl border p-4 ${
                   selected === p.id ? 'border-ink bg-white' : 'border-ink/20 bg-white/60'
                 }`}
               >
@@ -76,7 +115,12 @@ export function ChooseStoryteller() {
                   {p.display_name.charAt(0)}
                 </span>
                 <span className="text-lg">{p.display_name}</span>
-                {p.relation_label && <span className="text-sm text-muted">{p.relation_label}</span>}
+                {p.full_name && p.full_name !== p.display_name && (
+                  <span className="text-sm text-muted">{p.full_name}</span>
+                )}
+                {p.relation && (
+                  <span className="text-sm text-muted">{p.relation === 'family' ? 'Family' : 'Friend'}</span>
+                )}
               </button>
             ))}
           </div>

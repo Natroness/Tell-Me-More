@@ -177,12 +177,8 @@ SlotStatus = Literal["open", "partial", "filled"]
 Coverage = dict[Slot, SlotStatus]
 
 
-class NextQuestion(BaseModel):
+class CoverageUpdate(BaseModel):
     updated_coverage: Coverage
-    kind: Literal["follow_up", "new_slot", "wrap_up"]
-    target_slot: Slot
-    question: str = Field(max_length=140)
-    why: str
 
 
 # Object reading (stage 1 output).
@@ -203,4 +199,7 @@ class ObjectReading(BaseModel):
     suggested_title: str
     category: HeirloomCategory
     details: list[ObservedDetail]
+    # One line of what tells this exact object apart from others of its kind, kept on the
+    # heirloom so later captures can be matched against it without rereading any photo.
+    signature: str
     seed_questions: list[str] = Field(min_length=1, max_length=3)

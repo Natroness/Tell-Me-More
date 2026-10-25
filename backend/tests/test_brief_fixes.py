@@ -187,21 +187,25 @@ async def test_a_video_capture_is_kept_beside_the_cover(conn, fakes, seed, monke
 # Matching -----------------------------------------------------------------------------------
 
 
-async def saved_object(conn, seed, title):
+async def saved_object(conn, seed, title, category="watch", signature=None):
     heirloom_id = await conn.fetchval(
-        "insert into heirloom (family_id, title, category, created_by) "
-        "values ($1, $2, 'watch', $3) returning id",
+        "insert into heirloom (family_id, title, category, signature, created_by) "
+        "values ($1, $2, $3, $4, $5) returning id",
         seed.family_id,
         title,
+        category,
+        signature,
         seed.user_id,
     )
     return heirloom_id
 
 
-async def read(conn, seed):
+async def read(conn, seed, signature="pocket watch; gold case; initials engraved on lid"):
     await conn.execute(
-        "update heirloom set title = 'Gold pocket watch', category = 'watch' where id = $1",
+        "update heirloom set title = 'Gold pocket watch', category = 'watch', signature = $2 "
+        "where id = $1",
         seed.heirloom_id,
+        signature,
     )
     await conn.execute(
         "insert into job (kind, subject_id, family_id, status) "
@@ -235,6 +239,28 @@ async def test_matching_returns_only_confident_matches_with_their_state(conn, fa
 
     assert [(c.heirloom.id, c.has_story) for c in result.candidates] == [(same, True)]
     assert fakes.llm.calls[-1]["effort"] == "minimal"
+
+
+async def test_matching_compares_saved_signatures_and_skips_unrelated_objects(conn, fakes, seed):
+    await read(conn, seed)
+    filed_as_jewelry = await saved_object(
+        conn, seed, "Grandpa's watch", "jewelry", "watch on a chain; initials engraved on lid"
+    )
+    await saved_object(conn, seed, "Recipe card", "recipe", "index card; blue ink; coffee stain")
+    fakes.llm.responses[MatchPicks] = MatchPicks(matches=[MatchPick(index=0, confidence=0.8)])
+
+    result = await heirlooms.find_matches(seed.heirloom_id, User(id=seed.user_id))
+
+    assert [c.heirloom.id for c in result.candidates] == [filed_as_jewelry]
+    sent = fakes.llm.calls[-1]["messages"][0]["content"]
+    assert "initials engraved on lid" in sent and "Recipe card" not in sent
+
+
+async def test_nothing_of_the_same_kind_or_features_means_no_model_call(conn, fakes, seed):
+    await read(conn, seed)
+    await saved_object(conn, seed, "Recipe card", "recipe", "index card; blue ink; coffee stain")
+    result = await heirlooms.find_matches(seed.heirloom_id, User(id=seed.user_id))
+    assert (result.status, result.candidates, fakes.llm.calls) == ("ready", [], [])
 
 
 async def test_no_saved_objects_means_no_match_and_no_model_call(conn, fakes, seed):

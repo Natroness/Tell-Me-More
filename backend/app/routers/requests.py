@@ -153,27 +153,23 @@ async def create_request(body: CreateRequest, user: CurrentUser) -> RequestDetai
 
 
 @router.get("")
-async def list_requests(
-    family_id: UUID, user: CurrentUser, scope: str = "all"
-) -> list[StoryRequest]:
+async def list_requests(user: CurrentUser, scope: str = "all") -> list[StoryRequest]:
+    """Across every family you belong to: a connection can ask you about their own objects."""
     if scope not in ("all", "mine", "incoming"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "bad scope")
+    side = {
+        "all": "(r.listener_id = m.person_id or r.storyteller_id = m.person_id)",
+        "mine": "r.listener_id = m.person_id",
+        "incoming": "r.storyteller_id = m.person_id",
+    }[scope]
     async with pool().acquire() as conn:
-        me = await require_member(conn, user, family_id)
-        q = (
-            "select id, heirloom_id, capture_media_id, listener_id, storyteller_id, "
-            "message, status, created_at::text from story_request "
-            "where heirloom_id in (select id from heirloom where family_id = $1)"
+        rows = await conn.fetch(
+            "select r.id, r.heirloom_id, r.capture_media_id, r.listener_id, "
+            "r.storyteller_id, r.message, r.status, r.created_at::text from story_request r "
+            f"where exists (select 1 from member m where m.user_id = $1 and {side}) "
+            "order by r.created_at desc",
+            user.id,
         )
-        args: list = [family_id]
-        if scope == "mine":
-            q += " and listener_id = $2"
-            args.append(me)
-        elif scope == "incoming":
-            q += " and storyteller_id = $2"
-            args.append(me)
-        q += " order by created_at desc"
-        rows = await conn.fetch(q, *args)
     return [StoryRequest(**dict(r, message=r["message"] or "")) for r in rows]
 
 

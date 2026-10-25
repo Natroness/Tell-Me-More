@@ -1,16 +1,26 @@
 import type { Session } from '@supabase/supabase-js'
-import { useEffect, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
+import { useEffect, useRef, useState } from 'react'
 import { Outlet } from 'react-router'
 import { supabase } from '@/lib/supabase'
 
 export function AuthGate() {
+  const qc = useQueryClient()
   const [session, setSession] = useState<Session | null | undefined>(undefined)
+  const userId = useRef<string | null>(null)
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSession(data.session))
-    const { data } = supabase.auth.onAuthStateChange((_, s) => setSession(s))
+    // Cached answers belong to whoever asked: switching accounts must not show the last one's data.
+    const adopt = (s: Session | null) => {
+      const id = s?.user.id ?? null
+      if (id !== userId.current) qc.clear()
+      userId.current = id
+      setSession(s)
+    }
+    supabase.auth.getSession().then(({ data }) => adopt(data.session))
+    const { data } = supabase.auth.onAuthStateChange((_, s) => adopt(s))
     return () => data.subscription.unsubscribe()
-  }, [])
+  }, [qc])
 
   if (session === undefined) return null
   return session ? <Outlet /> : <SignIn />

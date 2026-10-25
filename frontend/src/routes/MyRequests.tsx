@@ -1,9 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Link } from 'react-router'
+import { BottomNav } from '@/components/ui/Nav'
 import { ScreenHeader } from '@/components/ui/Screen'
 import { api } from '@/lib/api'
-import { useFamily } from '@/lib/family'
 
 const STATUS_STYLE: Record<string, string> = {
   pending: 'bg-yellow-100 text-yellow-900',
@@ -15,14 +15,12 @@ const STATUS_STYLE: Record<string, string> = {
 
 /** Brief §3: My requests — pending + completed; decline → choose another. */
 export function MyRequests() {
-  const { data: family } = useFamily()
   const [scope, setScope] = useState<'mine' | 'incoming'>('mine')
   const list = useQuery({
-    queryKey: ['requests', family?.id, scope],
-    enabled: !!family,
+    queryKey: ['requests', scope],
     queryFn: async () =>
       (await api.GET('/api/requests', {
-        params: { query: { family_id: family!.id, scope } },
+        params: { query: { scope } },
       })).data ?? [],
   })
 
@@ -62,6 +60,7 @@ export function MyRequests() {
           )}
         </Link>
       ))}
+      <BottomNav />
     </main>
   )
 }

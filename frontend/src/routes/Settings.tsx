@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { BigButton, ScreenHeader } from '@/components/ui/Screen'
+import { BottomNav } from '@/components/ui/Nav'
 import { api } from '@/lib/api'
 import { useDisplayMode, type DisplayMode } from '@/lib/displayMode'
 import { supabase } from '@/lib/supabase'
@@ -90,6 +91,7 @@ export function Settings() {
       <button onClick={signOut} className="mt-2 text-sm text-muted underline">
         Sign out
       </button>
+      <BottomNav />
     </main>
   )
 }

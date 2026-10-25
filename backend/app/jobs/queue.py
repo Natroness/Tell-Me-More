@@ -14,6 +14,7 @@ JobKind = Literal[
     "lens_lookup",
     "transcribe_turn",
     "next_question",
+    "update_coverage",
     "extract_facts",
     "era_context",
     "compose_story",

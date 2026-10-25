@@ -19,6 +19,7 @@ from app.jobs.stages import (
     lens_lookup,
     next_question,
     transcribe_turn,
+    update_coverage,
 )
 
 log = logging.getLogger(__name__)
@@ -28,6 +29,7 @@ HANDLERS: dict[JobKind, Callable[[UUID], Awaitable[None]]] = {
     "lens_lookup": lens_lookup.run,
     "transcribe_turn": transcribe_turn.run,
     "next_question": next_question.run,
+    "update_coverage": update_coverage.run,
     "extract_facts": extract_facts.run,
     "era_context": era_context.run,
     "compose_story": compose_story.run,

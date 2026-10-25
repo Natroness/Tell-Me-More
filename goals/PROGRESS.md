@@ -30,3 +30,30 @@ Format: `YYYY-MM-DD HH:MM UTC — phase — result — evidence`
 - Apply `supabase/migrations/20261025000000_brief_gap.sql` to hosted project (dashboard SQL or supabase db push), verify tables/RLS/Realtime/advisors
 - Logged-in Playwright e2e: capture → review → archive → choose → confirm → accept → record → publish → playback × 3 display modes; file bugs back to Phase 3
 - Backend follow-ups: story draft endpoint, story_ready notification on compose_story, upload_status transitions, request→interview link
+
+## Navigation polish (2026-10-25)
+- New `components/ui/Nav.tsx`: BottomNav (Home/Stories/Requests/Alerts/Family + unread badge, hidden on focused flow screens), Loading, EmptyState, ErrorBanner
+- ScreenHeader (Back + Home) added to Shelf, Heirloom, Interview (compact), Family; PublicStory gets Home link
+- BottomNav added to Home, Stories, Requests, Alerts, Family, Settings; flow screens keep Back/Home header only. tsc + build clean.
+
+## Person search + request flow (2026-10-25)
+- Send: ChooseStoryteller → POST /api/requests (idempotent) → pending + request_received notification → RequestConfirm. Receive: Notifications inbox → RequestDetail → Accept (pending→in_progress) / decline (→declined + notify listener) / Tell the story → real interview with request_id → compose_story completes request + story_ready notification.
+- New GET /api/families/{family_id}/people/search?q=&limit= (0–5 results): text rank exact→prefix→contains→full-name→relation, tiebreak by relationship degree (social-graph relevance), then name. Person now carries full_name + degree.
+- ChooseStoryteller is search-first (250ms debounce, "Top N matches — pick by full name", empty→invite). 42 backend tests pass (incl. ranking/limit test), tsc + lint clean.
+
+## Strict member add + stories feed (2026-10-25)
+- Family tab no longer invents names: member search over registered accounts only (min 2 chars, max 5, excludes current members, 403 for outsiders), add validates caller-membership → family exists → account exists → not duplicate (409) → has display name (400). 46 backend tests pass.
+- New GET /api/families/{family_id}/stories feed (latest story per object, newest first, cover + storyteller, limit ≤50); Shelf has Stories/Objects tabs with 60s staleTime. tsc + lint + build clean.
+
+## Per-user Family, story tabs, audio fix, haptics (2026-10-25)
+- Family is personal now: "Your family, {firstName}" header, member count, You badge on your row, roster split into Family / Friends (relation_label). Add flow picks Family/Friend; any row can be retagged (PATCH /people/{id}, strict family|friend allowlist). New GET /families/{id}/membership identifies the viewer.
+- Shelf has exactly two tabs: Your stories (storyteller = you) and Family stories (everyone + per-member archive chips with counts). New feed filter ?storyteller_id= and GET /families/{id}/storytellers. Untold objects listed under Family stories.
+- Story audio: fixed the tap-to-play race (seek-before-metadata failed silently on mobile) — the player now waits for loadedmetadata with a timeout, shows "Playing: …", and surfaces a retry message instead of silence. Recordings were being stored correctly; playback was the break.
+- Haptics: lib/haptics.ts (navigator.vibrate, no-op on iPhone Safari) wired to Interview Answer/Done and Capture video Capture/Stop.
+- 50 backend tests pass (membership/retag/archives/filter), tsc + lint + build clean.
+
+## Interview latency, spoken loop, object fingerprints (2026-10-25)
+- next_question writes only the question text at minimal effort via providers.fast; coverage moves to a background update_coverage job; one-query context load; the streaming answer drafts the question on each 0.6 s pause and returns it on the same socket. Hard cap of 10 questions, WRAP_UP lets the model end sooner. Live e2e: next question 1.3–2.7 s after the answer ends (was 3.9–6.3 s).
+- Interview.tsx is a hands-free loop: speak question (phone TTS) → record → silence detection (2 s after speech) → streamed STT → next question, with I'm done / Hear again / End interview and "Question n of 10".
+- Matching: heirloom.signature (one line of lasting features from analyze_object) + generated tsvector + GIN index (20261025200000_heirloom_signature.sql, applied to hosted, 9/9 backfilled). find_matches is one 80 ms query that prefilters by same category or shared signature words, then the fast model at minimal effort (0.7–1.3 s). No candidates means no model call.
+- 60 backend tests pass, ruff clean, tsc + lint + build clean.

@@ -56,17 +56,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/people": {
+    "/api/families/{family_id}/people/search": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Search People
+         * @description Ranked name search for request recipients (Brief §3E).
+         *
+         *     Returns 0–5 people: text relevance first (exact → prefix → contains →
+         *     full-name), then social-graph degree, then name. Empty query returns [].
+         */
+        get: operations["search_people_api_families__family_id__people_search_get"];
         put?: never;
-        /** Create Person */
-        post: operations["create_person_api_people_post"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -285,6 +291,135 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Me */
+        get: operations["me_api_me_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Connections */
+        get: operations["list_connections_api_connections_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/connections/{other_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Relabel
+         * @description Changes only how you see them; their label for you is theirs.
+         */
+        patch: operations["relabel_api_connections__other_id__patch"];
+        trace?: never;
+    };
+    "/api/connections/requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Requests */
+        get: operations["list_requests_api_connections_requests_get"];
+        put?: never;
+        /**
+         * Send Request
+         * @description If they already asked you, sending one back accepts theirs.
+         */
+        post: operations["send_request_api_connections_requests_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/users/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search Users
+         * @description Accounts you could send a request to: never yourself, nobody already connected or asked.
+         */
+        get: operations["search_users_api_users_search_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/connections/requests/{request_id}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Accept */
+        post: operations["accept_api_connections_requests__request_id__accept_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/connections/requests/{request_id}/decline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Decline */
+        post: operations["decline_api_connections_requests__request_id__decline_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/heirlooms/{heirloom_id}/memories": {
         parameters: {
             query?: never;
@@ -336,6 +471,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Archive
+         * @description Someone's stories, newest first: objects they photographed or told. Yours by default.
+         *
+         *     Another person's archive opens only once you're connected, and shows only what you can open.
+         */
+        get: operations["archive_api_archive_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/requests": {
         parameters: {
             query?: never;
@@ -343,7 +500,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Requests */
+        /**
+         * List Requests
+         * @description Across every family you belong to: a connection can ask you about their own objects.
+         */
         get: operations["list_requests_api_requests_get"];
         put?: never;
         /** Create Request */
@@ -495,6 +655,16 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** Account */
+        Account: {
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+            /** Display Name */
+            display_name: string;
+        };
         /** AddMedia */
         AddMedia: {
             /** Mime */
@@ -525,6 +695,28 @@ export interface components {
             /** Upload Url */
             upload_url: string;
         };
+        /** ArchiveStory */
+        ArchiveStory: {
+            /**
+             * Heirloom Id
+             * Format: uuid
+             */
+            heirloom_id: string;
+            /** Version */
+            version: number;
+            /** Title */
+            title: string;
+            /** Dek */
+            dek?: string | null;
+            /** Object Title */
+            object_title?: string | null;
+            /** Cover Url */
+            cover_url?: string | null;
+            /** Storyteller Name */
+            storyteller_name?: string | null;
+            /** Created At */
+            created_at: string;
+        };
         /**
          * BBox
          * @description Normalized 0..1 coordinates on the photo.
@@ -548,6 +740,55 @@ export interface components {
             has_story: boolean;
             /** Open Request Id */
             open_request_id: string | null;
+        };
+        /** Choice */
+        Choice: {
+            /**
+             * Kind
+             * @default family
+             * @enum {string}
+             */
+            kind?: "family" | "friend";
+        };
+        /** Connection */
+        Connection: {
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+            /** Display Name */
+            display_name: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "family" | "friend";
+            /** Story Count */
+            story_count: number;
+        };
+        /**
+         * ConnectionRequest
+         * @description display_name is the other person. kind is what the sender asked to be.
+         */
+        ConnectionRequest: {
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+            /** Display Name */
+            display_name: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "family" | "friend";
         };
         /** Context */
         Context: {
@@ -615,25 +856,6 @@ export interface components {
             language?: string;
             /** Request Id */
             request_id?: string | null;
-        };
-        /** CreatePerson */
-        CreatePerson: {
-            /**
-             * Family Id
-             * Format: uuid
-             */
-            family_id: string;
-            /** Display Name */
-            display_name: string;
-            /** Relation Label */
-            relation_label?: string | null;
-            /** Birth Year */
-            birth_year?: number | null;
-            /**
-             * Is Living
-             * @default true
-             */
-            is_living?: boolean;
         };
         /** CreateRequest */
         CreateRequest: {
@@ -832,6 +1054,11 @@ export interface components {
             coverage: {
                 [key: string]: "open" | "partial" | "filled";
             };
+            /**
+             * Max Questions
+             * @default 10
+             */
+            max_questions?: number;
         };
         /** JoinFamily */
         JoinFamily: {
@@ -997,6 +1224,8 @@ export interface components {
             family_id: string;
             /** Display Name */
             display_name: string;
+            /** Full Name */
+            full_name?: string | null;
             /** Relation Label */
             relation_label?: string | null;
             /** Birth Year */
@@ -1006,6 +1235,13 @@ export interface components {
              * @default true
              */
             is_living?: boolean;
+            /**
+             * Degree
+             * @default 0
+             */
+            degree?: number;
+            /** Relation */
+            relation?: string | null;
         };
         /** Photo */
         Photo: {
@@ -1056,6 +1292,28 @@ export interface components {
              */
             speaker_id: string;
         };
+        /**
+         * Recording
+         * @description One answer, whole. Played in order, these are the story told in the teller's own voice.
+         */
+        Recording: {
+            /**
+             * Turn Id
+             * Format: uuid
+             */
+            turn_id: string;
+            /** Audio Url */
+            audio_url: string;
+            /** Duration Ms */
+            duration_ms: number | null;
+            /**
+             * Speaker Id
+             * Format: uuid
+             */
+            speaker_id: string;
+            /** Question */
+            question: string | null;
+        };
         /** RequestDetail */
         RequestDetail: {
             /**
@@ -1100,6 +1358,13 @@ export interface components {
             /** Storyteller Name */
             storyteller_name?: string | null;
         };
+        /** Requests */
+        Requests: {
+            /** Incoming */
+            incoming: components["schemas"]["ConnectionRequest"][];
+            /** Outgoing */
+            outgoing: components["schemas"]["ConnectionRequest"][];
+        };
         /** ResolvedSegment */
         ResolvedSegment: {
             /**
@@ -1135,6 +1400,30 @@ export interface components {
              * Format: uuid
              */
             segment_id: string;
+        };
+        /** SendRequest */
+        SendRequest: {
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+            /**
+             * Kind
+             * @default family
+             * @enum {string}
+             */
+            kind?: "family" | "friend";
+        };
+        /** Sent */
+        Sent: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Status */
+            status: string;
         };
         /** Sentence */
         Sentence: {
@@ -1174,6 +1463,20 @@ export interface components {
             /** Context Cards */
             context_cards: {
                 [key: string]: components["schemas"]["ContextCard"];
+            };
+            /** Recordings */
+            recordings: components["schemas"]["Recording"][];
+            /** People */
+            people: {
+                [key: string]: string;
+            };
+            /** Photos */
+            photos: {
+                [key: string]: string;
+            };
+            /** Memories */
+            memories: {
+                [key: string]: string;
             };
         };
         /** StoryRequest */
@@ -1396,26 +1699,27 @@ export interface operations {
             };
         };
     };
-    create_person_api_people_post: {
+    search_people_api_families__family_id__people_search_get: {
         parameters: {
-            query?: never;
+            query?: {
+                q?: string;
+                limit?: number;
+            };
             header?: never;
-            path?: never;
+            path: {
+                family_id: string;
+            };
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreatePerson"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
-            201: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Person"];
+                    "application/json": components["schemas"]["Person"][];
                 };
             };
             /** @description Validation Error */
@@ -1847,6 +2151,229 @@ export interface operations {
             };
         };
     };
+    me_api_me_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Account"];
+                };
+            };
+        };
+    };
+    list_connections_api_connections_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Connection"][];
+                };
+            };
+        };
+    };
+    relabel_api_connections__other_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                other_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Choice"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Choice"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_requests_api_connections_requests_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Requests"];
+                };
+            };
+        };
+    };
+    send_request_api_connections_requests_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Sent"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    search_users_api_users_search_get: {
+        parameters: {
+            query?: {
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Account"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    accept_api_connections_requests__request_id__accept_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Choice"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Sent"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decline_api_connections_requests__request_id__decline_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     add_memory_api_heirlooms__heirloom_id__memories_post: {
         parameters: {
             query?: never;
@@ -1946,10 +2473,40 @@ export interface operations {
             };
         };
     };
+    archive_api_archive_get: {
+        parameters: {
+            query?: {
+                user_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArchiveStory"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_requests_api_requests_get: {
         parameters: {
-            query: {
-                family_id: string;
+            query?: {
                 scope?: string;
             };
             header?: never;

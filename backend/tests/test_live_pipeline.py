@@ -2,9 +2,15 @@
 
 from uuid import uuid4
 
-from app.jobs.stages import analyze_object, lens_lookup, next_question, transcribe_turn
+from app.jobs.stages import (
+    analyze_object,
+    lens_lookup,
+    next_question,
+    transcribe_turn,
+    update_coverage,
+)
 from app.jobs.stages.lens_lookup import LensFinding, LensFindings
-from app.models import NextQuestion, ObjectReading, ObservedDetail
+from app.models import CoverageUpdate, ObjectReading, ObservedDetail
 from app.providers.base import LensMatch, Transcript, TranscriptSegment
 from app.segments import estimate_segments, sentence_segments
 from tests.conftest import make_wav
@@ -18,6 +24,7 @@ READING = ObjectReading(
             label="Resized", detail="A seam shows the band was resized.", confidence=0.7
         ),
     ],
+    signature="ring; gold band; 'R & S 1961' engraved inside; resizing seam",
     seed_questions=["Who are R and S?", "Why was the ring resized?"],
 )
 
@@ -37,9 +44,10 @@ async def test_analyze_object_saves_details_title_and_seed_questions(conn, fakes
     assert fakes.llm.calls[0]["images"][0].mime == "image/jpeg", "photo bytes reach the model"
 
     heirloom = await conn.fetchrow(
-        "select title, category from heirloom where id = $1", seed.heirloom_id
+        "select title, category, signature from heirloom where id = $1", seed.heirloom_id
     )
     assert (heirloom["title"], heirloom["category"]) == ("Gold wedding ring", "jewelry")
+    assert heirloom["signature"] == READING.signature, "kept for matching later captures"
 
 
 async def test_analyze_object_keeps_a_title_the_family_already_set(conn, fakes, seed):
@@ -216,41 +224,58 @@ def test_multi_sentence_asr_turns_are_split_within_their_time_span():
     assert (segs[2].start_ms, segs[2].end_ms) == (6000, 7000)
 
 
-FOLLOW_UP = NextQuestion(
-    updated_coverage={"origin": "filled", "moment": "partial"},
-    kind="follow_up",
-    target_slot="moment",
-    question="What was happening in your life in 1961?",
-    why="She named a year but not the moment.",
-)
+FOLLOW_UP = "What was happening in your life in 1961?"
 
 
-async def test_next_question_asks_a_follow_up_and_tracks_coverage(conn, fakes, seed):
+async def test_next_question_asks_a_follow_up_then_tracks_coverage(conn, fakes, seed):
     interview_id = await start_interview(conn, seed)
     await add_answer(
         conn, fakes, seed, interview_id, idx=1, text="My mother gave it to me in 1961."
     )
-    fakes.llm.responses[NextQuestion] = FOLLOW_UP
+    fakes.llm.responses[str] = f'"{FOLLOW_UP}"\n'
 
     await next_question.run(interview_id)
 
     assert fakes.llm.calls[-1]["effort"] == "minimal", "the narrator is waiting: think briefly"
     turn = await conn.fetchrow(
-        "select idx, role, text, target_slot from turn where interview_id = $1 "
-        "order by idx desc limit 1",
+        "select idx, role, text from turn where interview_id = $1 order by idx desc limit 1",
         interview_id,
     )
-    assert tuple(turn) == (2, "question", FOLLOW_UP.question, "moment")
-    interview = await conn.fetchrow(
-        "select state, coverage from interview where id = $1", interview_id
+    assert tuple(turn) == (2, "question", FOLLOW_UP)
+    assert await conn.fetchval("select state from interview where id = $1", interview_id) == (
+        "asking"
     )
-    assert interview["state"] == "asking"
-    assert interview["coverage"]["origin"] == "filled"
-    assert interview["coverage"]["secret"] == "open", "untouched slots stay open"
-
     prompt_text = fakes.llm.calls[0]["system"] + fakes.llm.calls[0]["messages"][0]["content"]
     assert "Nani" in prompt_text and "grandmother" in prompt_text
     assert "A: My mother gave it to me in 1961." in prompt_text
+    assert "Questions asked so far: 1 of at most 10." in prompt_text
+
+    assert (
+        await conn.fetchval(
+            "select status from job where kind = 'update_coverage' and subject_id = $1",
+            interview_id,
+        )
+        == "queued"
+    ), "coverage is worked out after the question, off the narrator's wait"
+    fakes.llm.responses[CoverageUpdate] = CoverageUpdate(
+        updated_coverage={"origin": "filled", "moment": "partial"}
+    )
+    await update_coverage.run(interview_id)
+    coverage = await conn.fetchval("select coverage from interview where id = $1", interview_id)
+    assert coverage["origin"] == "filled" and coverage["secret"] == "open"
+
+
+async def test_the_model_can_end_the_interview_when_the_story_is_told(conn, fakes, seed):
+    interview_id = await start_interview(conn, seed)
+    await add_answer(conn, fakes, seed, interview_id, idx=1, text="That's all there is.")
+    fakes.llm.responses[str] = "WRAP_UP"
+
+    await next_question.run(interview_id)
+
+    assert await conn.fetchval("select state from interview where id = $1", interview_id) == (
+        "wrapping_up"
+    )
+    assert await conn.fetchval("select count(*) from turn where role = 'question'") == 1
 
 
 async def test_next_question_does_nothing_once_the_interview_is_finished(conn, fakes, seed):
@@ -264,10 +289,33 @@ async def test_next_question_does_nothing_once_the_interview_is_finished(conn, f
     )
 
 
-async def test_next_question_wraps_up_after_eight_answers(conn, fakes, seed):
+async def ask_and_answer(conn, fakes, seed, interview_id, questions):
+    """The seed question plus `questions - 1` more, each answered."""
+    for n in range(questions):
+        if n:
+            await conn.execute(
+                "insert into turn (interview_id, idx, role, text) values ($1, $2, 'question', $3)",
+                interview_id,
+                2 * n,
+                f"question {n}",
+            )
+        await add_answer(conn, fakes, seed, interview_id, idx=2 * n + 1, text=f"answer {n}")
+
+
+async def test_the_tenth_question_is_the_last(conn, fakes, seed):
     interview_id = await start_interview(conn, seed)
-    for i in range(8):
-        await add_answer(conn, fakes, seed, interview_id, idx=i + 1, text=f"answer {i}")
+    await ask_and_answer(conn, fakes, seed, interview_id, questions=9)
+    fakes.llm.responses[str] = "Anything else the family should remember?"
+
+    await next_question.run(interview_id)
+
+    assert "The next one is the last." in fakes.llm.calls[-1]["messages"][0]["content"]
+    assert await conn.fetchval("select count(*) from turn where role = 'question'") == 10
+
+
+async def test_after_ten_questions_the_interview_ends_without_asking_the_model(conn, fakes, seed):
+    interview_id = await start_interview(conn, seed)
+    await ask_and_answer(conn, fakes, seed, interview_id, questions=10)
 
     await next_question.run(interview_id)
 

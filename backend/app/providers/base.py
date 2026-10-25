@@ -65,6 +65,10 @@ class LLM(Protocol):
         effort: Effort | None = None,
     ) -> T: ...
 
+    async def text(
+        self, *, system: str, messages: list[Msg], effort: Effort | None = None
+    ) -> str: ...
+
 
 class ASR(Protocol):
     # keywords bias recognition toward words it would mishear, like family names.

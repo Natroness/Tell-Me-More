@@ -9,6 +9,7 @@ from app.config import get_settings
 from app.jobs.runner import run_worker
 from app.routers import (
     answer_stream,
+    connections,
     families,
     heirlooms,
     interviews,
@@ -50,6 +51,7 @@ for r in (
     heirlooms,
     interviews,
     answer_stream,
+    connections,
     memories,
     stories,
     requests,

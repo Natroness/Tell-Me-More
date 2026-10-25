@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
+from app.accounts import account_name
 from app.auth import CurrentUser
 from app.db import pool
 
@@ -40,14 +41,9 @@ async def get_profile(user: CurrentUser) -> Profile:
             user.id,
         )
         if r is None:
-            person = await conn.fetchrow(
-                "select display_name from person where id in "
-                "(select person_id from member where user_id = $1 limit 1)",
-                user.id,
-            )
             return Profile(
                 user_id=str(user.id),
-                display_name=person["display_name"] if person else None,
+                display_name=await account_name(conn, user.id),
                 age=None,
                 ui_mode="simplified",
             )
@@ -65,15 +61,10 @@ async def update_profile(body: UpdateProfile, user: CurrentUser) -> Profile:
             mode = default_mode(body.age)
         else:
             mode = cur["ui_mode"] if cur else "simplified"
-        person = await conn.fetchrow(
-            "select display_name from person where id in "
-            "(select person_id from member where user_id = $1 limit 1)",
-            user.id,
-        )
         name = (
             body.display_name
             if body.display_name is not None
-            else (person["display_name"] if person else None)
+            else await account_name(conn, user.id)
         )
         r = await conn.fetchrow(
             """

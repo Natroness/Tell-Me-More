@@ -213,14 +213,34 @@ class Matches(BaseModel):
     candidates: list[Candidate] = []
 
 
-async def _described(conn, heirloom_id: UUID) -> str:
-    h = await conn.fetchrow("select title, category from heirloom where id = $1", heirloom_id)
-    details = await conn.fetch(
-        "select text from fact where heirloom_id = $1 and kind = 'observation' "
-        "and source->>'via' = 'vision' order by confidence desc nulls last limit 5",
-        heirloom_id,
-    )
-    return f"{h['title']} ({h['category']}): " + " ".join(d["text"] for d in details)
+# Saved objects worth asking the model about: the same kind, or sharing a word of the new
+# capture's signature, closest first. Everything the prompt needs comes back in this one query.
+_CANDIDATES = """
+with new as (
+  select title, category, signature,
+         (select to_tsquery('simple', string_agg(quote_literal(lexeme), ' | '))
+            from unnest(signature_terms)) as terms
+  from heirloom where id = $2
+)
+select h.id, h.family_id, h.title, h.category, h.signature, m.storage_path,
+       exists(select 1 from story s where s.heirloom_id = h.id) as has_story,
+       (select r.id from story_request r where r.heirloom_id = h.id
+          and r.status in ('pending', 'in_progress') limit 1) as open_request_id,
+       new.title as new_title, new.category as new_category, new.signature as new_signature
+from heirloom h
+cross join new
+left join media m on m.id = h.cover_media_id
+where h.family_id = $1 and h.id <> $2 and h.title is not null
+  and (h.category = new.category or h.signature_terms @@ new.terms)
+order by coalesce(h.category = new.category, false) desc,
+         coalesce(ts_rank(h.signature_terms, new.terms), 0) desc, h.created_at desc
+limit $3
+"""
+MAX_CANDIDATES = 12
+
+
+def _describe(title: str | None, category: str | None, signature: str | None) -> str:
+    return f"{title} ({category}): {signature or 'no details noted'}"
 
 
 @router.get("/{heirloom_id}/matches")
@@ -236,25 +256,15 @@ async def find_matches(heirloom_id: UUID, user: CurrentUser) -> Matches:
             return Matches(status="failed")
         if reading != "done":
             return Matches(status="analyzing")
-        saved = await conn.fetch(
-            """
-            select h.id, h.family_id, h.title, h.category, m.storage_path,
-                   exists(select 1 from story s where s.heirloom_id = h.id) as has_story,
-                   (select r.id from story_request r where r.heirloom_id = h.id
-                      and r.status in ('pending', 'in_progress') limit 1) as open_request_id
-            from heirloom h left join media m on m.id = h.cover_media_id
-            where h.family_id = $1 and h.id <> $2 and h.title is not null
-            order by h.created_at desc limit 30
-            """,
-            family_id,
-            heirloom_id,
-        )
-        if not saved:
-            return Matches(status="ready")
-        new = await _described(conn, heirloom_id)
-        listing = [f"[{i}] {await _described(conn, h['id'])}" for i, h in enumerate(saved)]
+        saved = await conn.fetch(_CANDIDATES, family_id, heirloom_id, MAX_CANDIDATES)
+    if not saved:
+        return Matches(status="ready")
+    new = _describe(saved[0]["new_title"], saved[0]["new_category"], saved[0]["new_signature"])
+    listing = [
+        f"[{i}] {_describe(h['title'], h['category'], h['signature'])}" for i, h in enumerate(saved)
+    ]
 
-    picks = await providers.get_providers().llm.json(
+    picks = await providers.get_providers().fast.json(
         system=prompt("match_heirloom"),
         messages=[
             {"role": "user", "content": f"New object: {new}\n\nSaved:\n" + "\n".join(listing)}

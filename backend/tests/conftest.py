@@ -17,8 +17,8 @@ if not os.environ.get("TEST_DATABASE_URL"):
 
 @dataclass
 class FakeLLM:
-    """Returns the queued response for whichever schema a stage asks for. A list is served in
-    order, one item per call."""
+    """Returns the queued response for whichever schema a stage asks for (`str` for plain text).
+    A list is served in order, one item per call."""
 
     responses: dict[type, Any] = field(default_factory=dict)
     calls: list[dict] = field(default_factory=list)
@@ -29,6 +29,9 @@ class FakeLLM:
         )
         response = self.responses[schema]
         return response.pop(0) if isinstance(response, list) else response
+
+    async def text(self, *, system, messages, effort=None):
+        return await self.json(system=system, messages=messages, schema=str, effort=effort)
 
 
 @dataclass
@@ -59,10 +62,12 @@ class FakeSearch:
 
 @dataclass
 class FakeStreamingASR:
-    """Echoes a partial per audio chunk, then returns `result` (or raises `fail`)."""
+    """Sends a partial per audio chunk (`partials` in order, else "heard N"), then returns
+    `result` (or raises `fail`)."""
 
     result: StreamedTranscript | None = None
     fail: Exception | None = None
+    partials: list[str] = field(default_factory=list)
     chunks: list[bytes] = field(default_factory=list)
     keywords: list[str] | None = None
 
@@ -71,7 +76,8 @@ class FakeStreamingASR:
         async for chunk in audio:
             self.chunks.append(chunk)
             if on_partial:
-                await on_partial(f"heard {len(self.chunks)}")
+                n = len(self.chunks)
+                await on_partial(self.partials[n - 1] if self.partials else f"heard {n}")
         if self.fail:
             raise self.fail
         return self.result
@@ -114,6 +120,7 @@ async def fakes(monkeypatch) -> Fakes:
         "get_providers",
         lambda: Providers(
             llm=f.llm,
+            fast=f.llm,
             vision=f.llm,
             asr=f.asr,
             asr_stream=f.asr_stream,
