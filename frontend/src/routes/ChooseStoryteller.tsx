@@ -1,23 +1,33 @@
-import { useMutation, useQuery } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
-import { useNavigate, useParams } from 'react-router'
-import { Link } from 'react-router'
-import { BigButton, ScreenHeader } from '@/components/ui/Screen'
+import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
+import { useLocation, useParams, useSearchParams } from 'react-router'
+import {
+  Avatar,
+  Button,
+  EmptyState,
+  ErrorState,
+  Header,
+  HandLink,
+  Loading,
+  ScreenBody,
+} from '@/components/ui/chrome'
 import { api } from '@/lib/api'
+import { useFamily } from '@/lib/family'
+import { useScreenTitle } from '@/lib/useScreenTitle'
+import { cn } from '@/lib/utils'
+import { usePeople } from '@/routes/capture/data'
+import { ObjectThumb } from '@/routes/capture/shared'
+import { SendRequest } from '@/routes/capture/SendRequest'
 
-/** Brief §3E: search-first storyteller picker (0–5 ranked results) + cards + Send. */
+/** Screen 10 (who might know?) then screen 11 (send a request) once someone is picked. */
 export function ChooseStoryteller() {
   const { heirloomId } = useParams() as { heirloomId: string }
-  const navigate = useNavigate()
-  const [search, setSearch] = useState('')
-  const [debounced, setDebounced] = useState('')
+  const location = useLocation()
+  const captureMediaId = (location.state as { captureMediaId?: string } | null)?.captureMediaId
+  const [params, setParams] = useSearchParams()
+  const to = params.get('to')
+  const { data: family, isLoading: familyLoading } = useFamily()
   const [selected, setSelected] = useState('')
-  const [message, setMessage] = useState('')
-
-  useEffect(() => {
-    const t = window.setTimeout(() => setDebounced(search.trim()), 250)
-    return () => window.clearTimeout(t)
-  }, [search])
 
   const detail = useQuery({
     queryKey: ['heirloom', heirloomId],
@@ -26,123 +36,91 @@ export function ChooseStoryteller() {
         params: { path: { heirloom_id: heirloomId } },
       })).data,
   })
-  const familyId = detail.data?.heirloom.family_id
-  const people = useQuery({
-    queryKey: ['people', familyId],
-    enabled: !!familyId && !debounced,
-    queryFn: async () =>
-      (await api.GET('/api/families/{family_id}/people', {
-        params: { path: { family_id: familyId! } },
-      })).data ?? [],
-  })
-  const results = useQuery({
-    queryKey: ['people-search', familyId, debounced],
-    enabled: !!familyId && debounced.length > 0,
-    queryFn: async () =>
-      (await api.GET('/api/families/{family_id}/people/search', {
-        params: { path: { family_id: familyId! }, query: { q: debounced, limit: 5 } },
-      })).data ?? [],
-  })
+  const people = usePeople(family?.id)
+  const others = people.people.filter((p) => p.display_name && p.relation !== 'you')
+  const person = to ? others.find((p) => p.id === to) : undefined
 
-  const send = useMutation({
-    mutationFn: async () =>
-      (await api.POST('/api/requests', {
-        body: {
-          heirloom_id: heirloomId,
-          storyteller_id: selected,
-          message: message || undefined,
-          idempotency_key: crypto.randomUUID(),
-        },
-      })).data!,
-    onSuccess: (r) => navigate(`/request-confirm/${r.id}`),
-  })
+  useScreenTitle(person ? 'send a request' : 'who might know?')
 
-  const searching = debounced.length > 0
-  const list = (searching ? (results.data ?? []) : (people.data ?? [])).filter((p) => p.relation !== 'you')
-  const loading = searching ? results.isLoading : people.isLoading
+  if (person)
+    return (
+      <SendRequest
+        key={person.id}
+        heirloomId={heirloomId}
+        detail={detail.data}
+        person={person}
+        captureMediaId={captureMediaId}
+      />
+    )
+
+  const loading = familyLoading || people.isLoading
+  const heirloom = detail.data?.heirloom
 
   return (
-    <main className="mx-auto flex max-w-xl flex-col gap-4 px-4 py-6">
-      <ScreenHeader title="Choose storyteller" />
-      <h1 className="font-serif text-3xl">Who might know its story?</h1>
-      {detail.data?.heirloom.cover_url && (
-        <img src={detail.data.heirloom.cover_url} className="rounded-xl" alt="Object" />
-      )}
-      <input
-        value={search}
-        onChange={(e) => {
-          setSearch(e.target.value)
-          setSelected('')
-        }}
-        placeholder="Search by name — e.g. John"
-        aria-label="Search family by name"
-        className="rounded-lg border border-ink/20 bg-white px-4 py-3"
-      />
-      {searching ? (
-        <p className="text-sm text-muted">
-          {loading
-            ? 'Searching…'
-            : results.data?.length
-              ? `Top ${results.data.length} match${results.data.length > 1 ? 'es' : ''} — pick by full name.`
-              : 'No matches. Try another spelling, or invite them below.'}
-        </p>
-      ) : (
-        <p className="text-sm text-muted">Type a name to narrow it down, or pick below.</p>
-      )}
-      {list.length === 0 && !loading ? (
-        <>
-          <p className="text-muted">
-            {searching
-              ? 'Nobody matches that name yet. Your capture is saved — invite them first.'
-              : 'No family members connected yet. Your capture is saved — invite someone first.'}
+    <ScreenBody screen="choose-storyteller">
+      <Header title="who might know?" />
+      {heirloom && (
+        <div className="mb-4 flex items-center gap-3">
+          <ObjectThumb src={heirloom.cover_url} className="size-16" />
+          <p className="min-w-0 font-sans text-[1.25rem] leading-snug break-words">
+            who could tell the story of {heirloom.title ?? 'this object'}?
           </p>
-          <BigButton to="/family" primary>
-            Add family or friends
-          </BigButton>
-        </>
+        </div>
+      )}
+      {loading ? (
+        <Loading label="finding your family…" />
+      ) : people.isError ? (
+        <ErrorState message={people.error.message} onRetry={() => people.refetch()} />
+      ) : others.length === 0 ? (
+        <EmptyState
+          title="no one to ask yet"
+          action={<Button to="/family">invite a family member</Button>}
+        >
+          your object is saved. invite a relative first, then come back to ask them.
+        </EmptyState>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3">
-            {list.map((p) => (
+          <div role="radiogroup" aria-label="storyteller" className="grid grid-cols-3 gap-x-2 gap-y-4">
+            {others.map((p) => (
               <button
                 key={p.id}
+                type="button"
+                role="radio"
+                aria-checked={selected === p.id}
                 onClick={() => setSelected(p.id)}
-                className={`flex flex-col items-center gap-1 rounded-xl border p-4 ${
-                  selected === p.id ? 'border-ink bg-white' : 'border-ink/20 bg-white/60'
-                }`}
-              >
-                <span className="flex size-14 items-center justify-center rounded-full bg-ink/10 font-serif text-2xl">
-                  {p.display_name.charAt(0)}
-                </span>
-                <span className="text-lg">{p.display_name}</span>
-                {p.full_name && p.full_name !== p.display_name && (
-                  <span className="text-sm text-muted">{p.full_name}</span>
+                className={cn(
+                  'hand-box flex flex-col items-center gap-1.5 border-2 px-1 py-3',
+                  selected === p.id ? 'border-ink bg-sun text-black' : 'border-transparent',
                 )}
-                {p.relation && (
-                  <span className="text-sm text-muted">{p.relation === 'family' ? 'Family' : 'Friend'}</span>
+              >
+                <Avatar name={p.display_name} size="lg" highlight={selected === p.id} />
+                <span className="w-full text-center font-sans text-[1.25rem] leading-tight break-words">
+                  {p.display_name}
+                </span>
+                {p.relation_label && (
+                  <span
+                    className={cn(
+                      'w-full text-center font-sans text-[1rem] leading-tight break-words',
+                      selected !== p.id && 'text-muted',
+                    )}
+                  >
+                    {p.relation_label}
+                  </span>
                 )}
               </button>
             ))}
           </div>
-          {selected && (
-            <>
-              <input
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                placeholder="Grandpa, who gave you this watch?"
-                className="rounded-lg border border-ink/20 bg-white px-4 py-3"
-              />
-              <BigButton onClick={() => send.mutate()} disabled={send.isPending} primary>
-                {send.isPending ? 'Sending…' : 'Send request'}
-              </BigButton>
-            </>
-          )}
-          {send.isError && <p className="text-red-700">Couldn&apos;t send. Try again.</p>}
+          <div className="mt-auto flex flex-col gap-2 pt-6">
+            <Button
+              disabled={!selected}
+              onClick={() => setParams({ to: selected }, { state: location.state })}
+            >
+              next →
+            </Button>
+            <HandLink to="/family">invite someone else</HandLink>
+          </div>
         </>
       )}
-      <Link to="/family" className="text-sm text-muted underline">
-        Manage family
-      </Link>
-    </main>
+    </ScreenBody>
   )
 }

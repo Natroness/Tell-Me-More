@@ -1,66 +1,83 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router'
-import { BigButton, ScreenHeader } from '@/components/ui/Screen'
-import { BottomNav } from '@/components/ui/Nav'
+import { Bell, CircleUserRound } from 'lucide-react'
+import {
+  AvailabilityIcon,
+  CaptureIcon,
+  DatesIcon,
+  MemoriesIcon,
+  TimelineIcon,
+  TreeIcon,
+} from '@/components/ui/sketchIcons'
+import { ScreenBody } from '@/components/ui/chrome'
 import { api } from '@/lib/api'
-import { headingSize, useDisplayMode } from '@/lib/displayMode'
-import { useFamily } from '@/lib/family'
-import { firstName, useMe } from '@/lib/me'
+import { useDisplayMode } from '@/lib/displayMode'
+import { useScreenTitle } from '@/lib/useScreenTitle'
+import { cn } from '@/lib/utils'
 
-/** Brief §3A: Discover heading, prominent camera, 4 destinations. */
+const tiles = [
+  { to: '/stories', label: 'capture an object', icon: CaptureIcon },
+  { to: '/dates', label: 'important dates', icon: DatesIcon },
+  { to: '/family', label: 'family tree', icon: TreeIcon },
+  { to: '/memories', label: 'family memories', icon: MemoriesIcon },
+  { to: '/availability', label: 'family availability', icon: AvailabilityIcon },
+  { to: '/timeline', label: 'timeline', icon: TimelineIcon },
+]
+
 export function Home() {
+  useScreenTitle('tell me more')
   const { mode } = useDisplayMode()
-  const { data: family } = useFamily()
-  const me = useMe()
-  const name = firstName(me.data)
+  const big = mode === 'extra_simple'
   const unread = useQuery({
-    queryKey: ['notifications'],
-    queryFn: async () => (await api.GET('/api/notifications')).data ?? [],
+    queryKey: ['notifications', 'unread-count'],
+    queryFn: async () => (await api.GET('/api/notifications/unread-count')).data?.count ?? 0,
+    refetchInterval: 30_000,
   })
-  const unreadCount = (unread.data ?? []).filter((n) => !n.read_at).length
-
-  if (!family) {
-    return (
-      <main className="mx-auto flex min-h-dvh max-w-sm flex-col justify-center gap-4 px-4">
-        <ScreenHeader title="Welcome" hideBack />
-        <p className="text-muted">Create a family to start collecting stories.</p>
-        <BigButton to="/stories" primary>
-          Get started
-        </BigButton>
-        <BigButton to="/onboarding">Set up display mode</BigButton>
-      </main>
-    )
-  }
+  const count = unread.data ?? 0
+  const iconBtn = 'relative grid size-12 shrink-0 place-items-center rounded-full'
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-xl flex-col gap-4 px-4 py-8">
-      {name && <p className="text-lg text-muted">Hi, {name}</p>}
-      <h1 className={`font-serif ${headingSize(mode)}`}>Discover an object&apos;s story</h1>
-      <Link
-        to="/capture"
-        className={`block rounded-2xl bg-ink text-center text-paper ${
-          mode === 'extra_simple' ? 'px-6 py-6 text-2xl' : 'px-6 py-5 text-xl'
-        }`}
-      >
-        Open camera
-      </Link>
-      <div className="grid grid-cols-2 gap-3">
-        <BigButton to="/stories">Family stories</BigButton>
-        <BigButton to="/requests">My requests</BigButton>
-        <BigButton to="/tell">Tell a story</BigButton>
-        <BigButton to="/notifications">
-          Notifications{unreadCount > 0 ? ` (${unreadCount})` : ''}
-        </BigButton>
-      </div>
-      <div className="mt-2 flex justify-between text-sm text-muted">
-        <Link to="/family" className="underline">
-          Family
-        </Link>
-        <Link to="/settings" className="underline">
-          Settings · Display mode
-        </Link>
-      </div>
-      <BottomNav />
-    </main>
+    <ScreenBody screen="home">
+      <header className="flex items-center justify-between gap-2">
+        <h1 className="font-hand text-[2.6rem] leading-none">tell me more</h1>
+        <div className="-mr-2 flex items-center">
+          <Link
+            to="/notifications"
+            aria-label={count ? `Notifications, ${count} unread` : 'Notifications'}
+            className={iconBtn}
+          >
+            <Bell className="size-7" strokeWidth={2.2} />
+            {count > 0 && (
+              <span className="absolute top-1 right-1 grid min-w-5 place-items-center rounded-full border-2 border-ink bg-sun px-1 font-sans text-[0.85rem] leading-4 text-black">
+                {count > 9 ? '9+' : count}
+              </span>
+            )}
+          </Link>
+          <Link to="/account" aria-label="Profile and preferences" className={iconBtn}>
+            <CircleUserRound className="size-8" strokeWidth={2.2} />
+          </Link>
+        </div>
+      </header>
+
+      <nav className="mt-8 grid grid-cols-2 gap-3" aria-label="Home">
+        {tiles.map(({ to, label, icon: Icon }) => (
+          <Link
+            key={to}
+            to={to}
+            className="hand-box flex min-h-36 min-w-0 flex-col items-center justify-center gap-2 border-2 border-ink px-2 py-4 text-center transition-colors hover:bg-ink/5 active:bg-sun active:text-black"
+          >
+            <Icon />
+            <span
+              className={cn(
+                'w-full font-sans leading-[1.05] break-words hyphens-auto',
+                big ? 'text-[1.6rem]' : 'text-[1.35rem]',
+              )}
+            >
+              {label}
+            </span>
+          </Link>
+        ))}
+      </nav>
+    </ScreenBody>
   )
 }

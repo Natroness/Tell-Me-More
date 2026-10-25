@@ -7,8 +7,10 @@ const SAMPLE_RATE = 16_000
 
 export type Recording = {
   stop: () => Promise<Blob>
-  /** Loudest RMS level since the last call, 0 to 1. Silence detection polls it. */
-  loudest: () => number
+  level: () => number
+  /** Suspends capture; nothing is recorded or streamed until `resume`. */
+  pause: () => Promise<void>
+  resume: () => Promise<void>
 }
 
 export async function startRecording(onPcm?: (pcm: ArrayBuffer) => void): Promise<Recording> {
@@ -20,20 +22,21 @@ export async function startRecording(onPcm?: (pcm: ArrayBuffer) => void): Promis
   const source = ctx.createMediaStreamSource(stream)
   const node = new AudioWorkletNode(ctx, 'pcm-capture')
   const chunks: Float32Array[] = []
-  let peak = 0
+  let lastLevel = 0
   node.port.onmessage = (e: MessageEvent<Float32Array>) => {
     chunks.push(e.data)
     onPcm?.(toInt16(e.data).buffer as ArrayBuffer)
-    peak = Math.max(peak, Math.sqrt(e.data.reduce((s, v) => s + v * v, 0) / e.data.length))
+    lastLevel = Math.sqrt(e.data.reduce((s, v) => s + v * v, 0) / e.data.length)
   }
   source.connect(node)
 
   return {
-    loudest: () => {
-      const p = peak
-      peak = 0
-      return p
+    level: () => lastLevel,
+    async pause() {
+      lastLevel = 0
+      await ctx.suspend()
     },
+    resume: () => ctx.resume(),
     async stop() {
       source.disconnect()
       node.disconnect()

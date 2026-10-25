@@ -1,231 +1,278 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
-import { Link } from 'react-router'
-import { BottomNav } from '@/components/ui/Nav'
-import { ScreenHeader } from '@/components/ui/Screen'
+import { useQueryClient } from '@tanstack/react-query'
+import { useMemo, useState, type FormEvent } from 'react'
+import { Copy } from 'lucide-react'
+import { FamilyTreeView } from '@/components/family/FamilyTreeView'
+import {
+  Avatar,
+  Button,
+  Card,
+  Chip,
+  Disclosure,
+  ErrorState,
+  FormError,
+  Header,
+  Loading,
+  ScreenBody,
+} from '@/components/ui/chrome'
+import { TextField } from '@/components/ui/fields'
+import { TreeIcon } from '@/components/ui/sketchIcons'
 import { api, type Schemas } from '@/lib/api'
-import { firstName, useMe } from '@/lib/me'
+import { formatApiError } from '@/lib/apiError'
+import { useAuth } from '@/lib/auth'
+import { copyText, inviteLink } from '@/lib/clipboard'
+import { useFamily, useFamilyInvites, useFamilyTree } from '@/lib/family'
+import { useProfile } from '@/lib/profile'
+import { kindLabel, possessive, relationTo } from '@/lib/relations'
+import { layoutTree } from '@/lib/treeLayout'
+import { useScreenTitle } from '@/lib/useScreenTitle'
+import { cn } from '@/lib/utils'
+import { Connections } from '@/routes/family/Connections'
 
-type Kind = 'family' | 'friend'
-const KINDS: Kind[] = ['family', 'friend']
-const label = (k: Kind) => (k === 'family' ? 'Family' : 'Friend')
+type Family = Schemas['Family']
+type Tree = Schemas['FamilyTree']
+type Invite = Schemas['Invite']
 
-/** Your people: real accounts you asked and who said yes, each labelled the way you chose. */
 export function Family() {
-  const qc = useQueryClient()
-  const me = useMe()
-  const [raw, setRaw] = useState('')
-  const [q, setQ] = useState('')
-  const [kind, setKind] = useState<Kind>('family')
-
-  useEffect(() => {
-    const t = window.setTimeout(() => setQ(raw.trim()), 250)
-    return () => window.clearTimeout(t)
-  }, [raw])
-
-  const people = useQuery({
-    queryKey: ['connections'],
-    queryFn: async () => (await api.GET('/api/connections')).data ?? [],
-  })
-  const pending = useQuery({
-    queryKey: ['connection-requests'],
-    queryFn: async () => (await api.GET('/api/connections/requests')).data,
-    refetchInterval: 10_000,
-  })
-  const found = useQuery({
-    queryKey: ['user-search', q],
-    enabled: q.length >= 2,
-    queryFn: async () => (await api.GET('/api/users/search', { params: { query: { q } } })).data ?? [],
-  })
-
-  const refresh = () =>
-    ['connections', 'connection-requests', 'user-search'].forEach((k) =>
-      qc.invalidateQueries({ queryKey: [k] }),
-    )
-  const ask = useMutation({
-    mutationFn: async (userId: string) => {
-      const { error } = await api.POST('/api/connections/requests', {
-        body: { user_id: userId, kind },
-      })
-      if (error) throw new Error('could not ask')
-    },
-    onSuccess: () => {
-      setRaw('')
-      refresh()
-    },
-  })
-  const answer = useMutation({
-    mutationFn: async (a: { id: string; kind: Kind | null }) => {
-      const path = { params: { path: { request_id: a.id } } }
-      const { error } = a.kind
-        ? await api.POST('/api/connections/requests/{request_id}/accept', { ...path, body: { kind: a.kind } })
-        : await api.POST('/api/connections/requests/{request_id}/decline', path)
-      if (error) throw new Error('could not answer')
-    },
-    onSuccess: refresh,
-  })
-  const relabel = useMutation({
-    mutationFn: async (a: { userId: string; kind: Kind }) =>
-      api.PATCH('/api/connections/{other_id}', {
-        params: { path: { other_id: a.userId } },
-        body: { kind: a.kind },
-      }),
-    onSuccess: refresh,
-  })
-
-  const all = people.data ?? []
-  const incoming = pending.data?.incoming ?? []
-  const outgoing = pending.data?.outgoing ?? []
-
-  function group(k: Kind, empty: string) {
-    const rows = all.filter((p) => p.kind === k)
+  useScreenTitle('family tree')
+  const family = useFamily()
+  if (family.isLoading) {
     return (
-      <section>
-        <h2 className="font-serif text-xl">
-          {k === 'family' ? 'Family' : 'Friends'} ({rows.length})
-        </h2>
-        {rows.length === 0 ? (
-          <p className="py-2 text-sm text-muted">{empty}</p>
-        ) : (
-          <ul className="divide-y divide-ink/10">{rows.map(row)}</ul>
-        )}
-      </section>
+      <ScreenBody screen="family-loading">
+        <Header title="family tree" back="/" />
+        <Loading label="opening your family…" />
+      </ScreenBody>
     )
   }
-
-  function row(p: Schemas['Connection']) {
+  if (family.isError) {
     return (
-      <li key={p.user_id} className="flex items-center justify-between gap-2 py-2">
-        <Link to={`/stories?person=${p.user_id}`} className="min-w-0">
-          <span className="block truncate">{p.display_name}</span>
-          <span className="text-sm text-muted">
-            {p.story_count} {p.story_count === 1 ? 'story' : 'stories'}
-          </span>
-        </Link>
-        <select
-          value={p.kind}
-          onChange={(e) => relabel.mutate({ userId: p.user_id, kind: e.target.value as Kind })}
-          aria-label={`Group for ${p.display_name}`}
-          className="rounded-lg border border-ink/20 bg-white px-2 py-1 text-sm"
-        >
-          {KINDS.map((k) => (
-            <option key={k} value={k}>
-              {label(k)}
-            </option>
-          ))}
-        </select>
-      </li>
+      <ScreenBody screen="family-error">
+        <Header title="family tree" back="/" />
+        <ErrorState message={family.error.message} onRetry={() => family.refetch()} />
+      </ScreenBody>
     )
+  }
+  if (!family.data) return <CreateFamily />
+  return <FamilyTreeScreen family={family.data} />
+}
+
+function CreateFamily() {
+  const qc = useQueryClient()
+  const { session } = useAuth()
+  const profile = useProfile()
+  const [name, setName] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  async function submit(e: FormEvent) {
+    e.preventDefault()
+    setError(null)
+    if (!name.trim()) {
+      setError('add a family name.')
+      return
+    }
+    const yourName =
+      profile.data?.display_name?.trim() || session?.user.email?.split('@')[0] || 'me'
+    setBusy(true)
+    const { data, error: apiError } = await api.POST('/api/families', {
+      body: { name: name.trim(), your_name: yourName },
+    })
+    setBusy(false)
+    if (apiError || !data) {
+      setError(formatApiError(apiError, 'we could not create your family. try again.'))
+      return
+    }
+    qc.setQueryData(['families'], [data])
+    qc.invalidateQueries({ queryKey: ['families'] })
   }
 
   return (
-    <main className="mx-auto flex max-w-xl flex-col gap-6 px-4 py-8">
-      <ScreenHeader title="Family" />
-      <h1 className="font-serif text-3xl">Your people, {firstName(me.data) || '…'}</h1>
-
-      {incoming.length > 0 && (
-        <section className="rounded-xl bg-white p-4 shadow">
-          <h2 className="font-serif text-xl">Asking to join you</h2>
-          <ul className="divide-y divide-ink/10">
-            {incoming.map((r) => (
-              <li key={r.id} className="flex flex-col gap-2 py-3">
-                <p>
-                  <span className="font-semibold">{r.display_name}</span> added you as{' '}
-                  {r.kind === 'family' ? 'family' : 'a friend'}.
-                </p>
-                <div className="flex gap-2">
-                  {KINDS.map((k) => (
-                    <button
-                      key={k}
-                      disabled={answer.isPending}
-                      onClick={() => answer.mutate({ id: r.id, kind: k })}
-                      className="flex-1 rounded-lg bg-ink px-3 py-2 text-sm text-paper disabled:opacity-40"
-                    >
-                      Accept as {label(k).toLowerCase()}
-                    </button>
-                  ))}
-                  <button
-                    disabled={answer.isPending}
-                    onClick={() => answer.mutate({ id: r.id, kind: null })}
-                    className="rounded-lg border border-ink/20 px-3 py-2 text-sm disabled:opacity-40"
-                  >
-                    Decline
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {people.isLoading ? (
-        <p className="text-muted">Loading your people…</p>
-      ) : (
-        <>
-          {group('family', 'Nobody yet. Search below to ask a relative.')}
-          {group('friend', 'Friends you add show up here.')}
-        </>
-      )}
-
-      {outgoing.length > 0 && (
-        <section>
-          <h2 className="font-serif text-xl">Waiting for an answer</h2>
-          <ul className="text-muted">
-            {outgoing.map((r) => (
-              <li key={r.id} className="py-1">
-                {r.display_name} · as {label(r.kind).toLowerCase()}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      <section>
-        <h2 className="font-serif text-xl">Add someone</h2>
-        <p className="mt-1 text-sm text-muted">
-          They need to have signed in once. They&apos;ll see your request and choose to accept.
-        </p>
-        <div className="mt-3 flex gap-2">
-          {KINDS.map((k) => (
-            <button
-              key={k}
-              onClick={() => setKind(k)}
-              className={`flex-1 rounded-lg px-4 py-2 ${kind === k ? 'bg-ink text-paper' : 'border border-ink/20 bg-white'}`}
-            >
-              {label(k)}
-            </button>
-          ))}
+    <ScreenBody screen="family-setup">
+      <Header title="family tree" back="/" />
+      <div className="flex justify-center">
+        <TreeIcon />
+      </div>
+      <p className="mt-4 text-center font-sans text-[1.25rem] leading-snug">
+        start your family so you can share stories, memories, and availability together.
+      </p>
+      <form onSubmit={submit} className="mt-6 flex flex-1 flex-col gap-4" noValidate>
+        <TextField label="family name" name="family-name" value={name} onChange={setName} />
+        <div className="mt-auto flex flex-col gap-3 pt-5">
+          <FormError>{error}</FormError>
+          <Button type="submit" disabled={busy}>
+            {busy ? 'creating…' : 'create a family →'}
+          </Button>
         </div>
-        <input
-          value={raw}
-          onChange={(e) => setRaw(e.target.value)}
-          placeholder="Search by name"
-          aria-label="Search people by name"
-          className="mt-3 w-full rounded-lg border border-ink/20 bg-white px-3 py-2"
-        />
-        {q.length >= 2 && (
-          <ul className="mt-2 divide-y divide-ink/10 rounded-xl bg-white shadow">
-            {found.isLoading && <li className="px-4 py-3 text-muted">Searching…</li>}
-            {!found.isLoading && (found.data ?? []).length === 0 && (
-              <li className="px-4 py-3 text-muted">Nobody new by that name.</li>
-            )}
-            {(found.data ?? []).map((u) => (
-              <li key={u.user_id} className="flex items-center justify-between gap-3 px-4 py-2">
-                <span>{u.display_name}</span>
-                <button
-                  disabled={ask.isPending}
-                  onClick={() => ask.mutate(u.user_id)}
-                  className="rounded-lg bg-ink px-4 py-2 text-sm text-paper disabled:opacity-40"
-                >
-                  Ask as {label(kind).toLowerCase()}
-                </button>
-              </li>
+      </form>
+    </ScreenBody>
+  )
+}
+
+function relationToMe(tree: Tree, id: string): string | null {
+  const me = tree.me
+  if (!me || id === me) return null
+  for (const e of tree.relationships) {
+    if (e.kind === 'parent') {
+      if (e.a === id && e.b === me) return `your ${kindLabel('parent')}`
+      if (e.a === me && e.b === id) return `your ${kindLabel('child')}`
+    } else if ((e.a === id && e.b === me) || (e.a === me && e.b === id)) {
+      return `your ${kindLabel(e.kind === 'spouse' ? 'spouse' : 'sibling')}`
+    }
+  }
+  return null
+}
+
+function FamilyTreeScreen({ family }: { family: Family }) {
+  const tree = useFamilyTree(family.id)
+  const invites = useFamilyInvites(family.id)
+  const [picked, setPicked] = useState<string | null>(null)
+  const layout = useMemo(() => (tree.data ? layoutTree(tree.data) : null), [tree.data])
+  const selectedId = picked ?? tree.data?.me ?? null
+  const selected = tree.data?.people.find((p) => p.id === selectedId) ?? null
+  const pending = invites.data?.filter((i) => i.status === 'pending') ?? []
+  const declined = invites.data?.filter((i) => i.status === 'declined') ?? []
+  const me = tree.data?.me ?? null
+
+  return (
+    <ScreenBody screen="family-tree">
+      <Header title="family tree" back="/" />
+      <p className="-mt-3 mb-4 text-center font-sans text-[1.15rem] leading-snug break-words text-muted">{family.name}</p>
+
+      {tree.isLoading && <Loading label="loading your tree…" />}
+      {tree.isError && <ErrorState message={tree.error.message} onRetry={() => tree.refetch()} />}
+      {tree.data && layout && (
+        <FamilyTreeView layout={layout} meId={me} selectedId={selectedId} onSelect={setPicked} />
+      )}
+
+      {layout && layout.unplaced.length > 0 && (
+        <section className="mt-6">
+          <h2 className="font-sans text-[1.3rem] leading-none">not in the tree yet</h2>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {layout.unplaced.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => setPicked(p.id)}
+                aria-pressed={p.id === selectedId}
+                className={cn(
+                  'hand-pill min-h-12 border-2 border-ink px-4 py-1.5 font-sans text-[1.2rem] leading-tight break-words',
+                  p.id === selectedId && 'bg-sun text-black',
+                )}
+              >
+                {p.display_name}
+              </button>
             ))}
-          </ul>
+          </div>
+        </section>
+      )}
+
+      {tree.data && selected && <PersonDetails tree={tree.data} person={selected} pending={pending} />}
+
+      <section className="mt-10 flex flex-col gap-3" aria-labelledby="pending-heading">
+        <h2 id="pending-heading" className="font-hand text-[1.9rem] leading-none">
+          waiting to join
+        </h2>
+        {invites.isLoading && <Loading label="checking invitations…" />}
+        {invites.isError && <ErrorState message={invites.error.message} onRetry={() => invites.refetch()} />}
+        {invites.data && pending.length === 0 && (
+          <p className="font-sans text-[1.15rem] leading-snug text-muted">no one is waiting to answer.</p>
         )}
-        {ask.isError && <p className="mt-2 text-sm text-red-700">Couldn&apos;t send that. Try again.</p>}
+        {pending.length > 0 && (
+          <>
+            <p className="font-sans text-[1.05rem] leading-snug text-muted">no email is sent. share each link yourself.</p>
+            <ul className="flex flex-col gap-3">
+              {pending.map((invite) => (
+                <InviteRow key={invite.id} invite={invite} me={me} />
+              ))}
+            </ul>
+          </>
+        )}
+        {declined.length > 0 && (
+          <Disclosure summary={`declined (${declined.length})`}>
+            <ul className="flex flex-col gap-2">
+              {declined.map((invite) => (
+                <li key={invite.id} className="break-words">
+                  {invite.email} · as {relationTo(invite.kind, invite.anchor_name, invite.anchor_person_id === me)}
+                </li>
+              ))}
+            </ul>
+          </Disclosure>
+        )}
       </section>
-      <BottomNav />
-    </main>
+
+      <Connections />
+    </ScreenBody>
+  )
+}
+
+function PersonDetails({
+  tree,
+  person,
+  pending,
+}: {
+  tree: Tree
+  person: Schemas['Person']
+  pending: Invite[]
+}) {
+  const isMe = person.id === tree.me
+  const hasAccount = tree.member_person_ids.includes(person.id)
+  const waiting = pending.filter((i) => i.anchor_person_id === person.id).length
+  const relation = relationToMe(tree, person.id)
+  return (
+    <Card className="mt-6">
+      <section className="flex flex-col gap-3" aria-label={`${person.display_name} details`}>
+        <div className="flex items-center gap-3">
+          <Avatar name={person.display_name} highlight={isMe} />
+          <div className="min-w-0">
+            <p className="font-hand text-[1.9rem] leading-tight break-words">{isMe ? 'you' : person.display_name}</p>
+            <p className="font-sans text-[1.15rem] leading-snug break-words">
+              {isMe ? person.display_name : (relation ?? 'in this family')}
+              {person.birth_year ? ` · born ${person.birth_year}` : ''}
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Chip tone={hasAccount ? 'sun' : 'plain'}>{hasAccount ? 'on tell me more' : 'no account yet'}</Chip>
+          {waiting > 0 && <Chip>{waiting} pending invitation{waiting === 1 ? '' : 's'}</Chip>}
+        </div>
+        <Button to={`/family/invite/${person.id}`}>
+          {isMe ? 'add your relative →' : `add ${possessive(person.display_name)} relative →`}
+        </Button>
+      </section>
+    </Card>
+  )
+}
+
+function InviteRow({ invite, me }: { invite: Invite; me: string | null }) {
+  const [copied, setCopied] = useState<'yes' | 'failed' | null>(null)
+  const link = inviteLink(invite.id)
+  return (
+    <li>
+      <Card tone="dashed">
+        <div className="flex items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="font-sans text-[1.2rem] leading-snug break-all">{invite.email}</p>
+            <p className="font-sans text-[1.05rem] leading-snug text-muted">
+              as {relationTo(invite.kind, invite.anchor_name, invite.anchor_person_id === me)}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={async () => setCopied((await copyText(link)) ? 'yes' : 'failed')}
+            className="hand-pill inline-flex min-h-12 shrink-0 items-center gap-1.5 border-2 border-ink px-3 font-sans text-[1.15rem] leading-none"
+          >
+            {copied === 'yes' ? (
+              'copied ✓'
+            ) : (
+              <>
+                <Copy className="size-4" strokeWidth={2.2} aria-hidden /> copy link
+              </>
+            )}
+          </button>
+        </div>
+        {copied === 'failed' && (
+          <p className="mt-2 font-sans text-[0.95rem] break-all select-all">copy did not work. select this link: {link}</p>
+        )}
+      </Card>
+    </li>
   )
 }

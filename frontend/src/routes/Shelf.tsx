@@ -1,174 +1,246 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query'
+import { MessageCircle, Plus } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
-import { BottomNav } from '@/components/ui/Nav'
-import { ScreenHeader } from '@/components/ui/Screen'
+import {
+  AudioPlayer,
+  Button,
+  Card,
+  EmptyState,
+  ErrorState,
+  FormError,
+  Header,
+  Loading,
+  ScreenBody,
+  Tabs,
+} from '@/components/ui/chrome'
+import { TextField } from '@/components/ui/fields'
 import { api, type Schemas } from '@/lib/api'
+import { formatApiError } from '@/lib/apiError'
 import { useFamily } from '@/lib/family'
+import { useScreenTitle } from '@/lib/useScreenTitle'
+import { isOpen, useRequestBoard } from '@/routes/capture/data'
+import { ObjectThumb, RequestCard } from '@/routes/capture/shared'
 
-type Tab = 'yours' | 'family'
+type Tab = 'stories' | 'requests'
 
-/** Your stories, or pick someone you're connected to and read theirs. */
+/** Screen 05: the family's objects and the story requests around them. */
 export function Shelf() {
-  const { data: family, isLoading } = useFamily()
+  useScreenTitle('object stories')
+  const family = useFamily()
   const [params, setParams] = useSearchParams()
-  const person = params.get('person')
-  const tab: Tab = person || params.get('tab') === 'family' ? 'family' : 'yours'
-  const go = (next: Record<string, string>) => setParams(next, { replace: true })
-
-  const people = useQuery({
-    queryKey: ['connections'],
-    enabled: tab === 'family',
-    queryFn: async () => (await api.GET('/api/connections')).data ?? [],
-  })
-  const stories = useQuery({
-    queryKey: ['archive', person ?? 'me'],
-    enabled: tab === 'yours' || !!person,
-    queryFn: async () =>
-      (await api.GET('/api/archive', { params: { query: { user_id: person ?? undefined } } }))
-        .data ?? [],
-  })
-  const heirlooms = useQuery({
-    queryKey: ['heirlooms', family?.id],
-    enabled: !!family && tab === 'yours',
-    queryFn: async () =>
-      (await api.GET('/api/heirlooms', { params: { query: { family_id: family!.id } } })).data ??
-      [],
+  const tab: Tab = params.get('tab') === 'requests' ? 'requests' : 'stories'
+  const board = useRequestBoard(family.data?.id)
+  const archive = useQuery({
+    queryKey: ['archive'],
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/archive')
+      if (error || !data) throw new Error(formatApiError(error, 'we could not load your stories.'))
+      return data
+    },
   })
 
-  if (isLoading) return null
-  if (!family) return <CreateFamily />
-
-  const told = new Set((stories.data ?? []).map((s) => s.heirloom_id))
-  const untold = (heirlooms.data ?? []).filter((h) => !told.has(h.id))
-  const chosen = (people.data ?? []).find((p) => p.user_id === person)
-
-  return (
-    <main className="mx-auto max-w-2xl px-4 py-8">
-      <ScreenHeader title="Stories" />
-      <div className="mb-6 flex gap-2">
-        {(['yours', 'family'] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => go(t === 'family' ? { tab: 'family' } : {})}
-            className={`flex-1 rounded-lg px-4 py-3 ${tab === t ? 'bg-ink text-paper' : 'border border-ink/20 bg-white'}`}
-          >
-            {t === 'yours' ? 'Your stories' : 'Family stories'}
-          </button>
-        ))}
-      </div>
-
-      {tab === 'family' && !person && (
-        <People people={people.data} loading={people.isLoading} onPick={(id) => go({ person: id })} />
-      )}
-
-      {(tab === 'yours' || person) && (
-        <>
-          {person && (
-            <header className="mb-4 flex items-baseline justify-between gap-2">
-              <h1 className="font-serif text-3xl">{chosen ? `${chosen.display_name}'s stories` : 'Stories'}</h1>
-              <button onClick={() => go({ tab: 'family' })} className="text-sm text-muted underline">
-                Everyone
-              </button>
-            </header>
-          )}
-          <div className="flex flex-col gap-4">
-            {stories.isLoading && <p className="text-muted">Loading stories…</p>}
-            {stories.isError && <p className="text-muted">You can&apos;t open these stories.</p>}
-            {stories.data?.length === 0 && (
-              <p className="text-muted">
-                {person
-                  ? 'No stories here yet.'
-                  : 'No stories yet. Photograph an object and ask someone to tell it.'}
-              </p>
-            )}
-            {(stories.data ?? []).map((s) => (
-              <StoryCard key={s.heirloom_id} story={s} />
-            ))}
-          </div>
-        </>
-      )}
-
-      {tab === 'yours' && untold.length > 0 && (
-        <>
-          <h2 className="mt-8 font-serif text-xl">Not yet told</h2>
-          <div className="mt-2 grid grid-cols-2 gap-4">
-            {untold.map((h) => (
-              <Link key={h.id} to={`/h/${h.id}`} className="overflow-hidden rounded-xl bg-white shadow">
-                {h.cover_url && <img src={h.cover_url} className="aspect-square w-full object-cover" alt="" />}
-                <p className="p-3 font-serif">{h.title ?? 'Untitled'}</p>
-              </Link>
-            ))}
-          </div>
-        </>
-      )}
-      <BottomNav />
-    </main>
-  )
-}
-
-function People({
-  people,
-  loading,
-  onPick,
-}: {
-  people: Schemas['Connection'][] | undefined
-  loading: boolean
-  onPick: (userId: string) => void
-}) {
-  if (loading) return <p className="text-muted">Loading your people…</p>
-  if (!people?.length) {
+  if (family.isLoading) return <ScreenBody><Loading /></ScreenBody>
+  if (family.isError)
     return (
-      <div className="rounded-xl bg-white p-6 text-center shadow">
-        <p className="text-muted">Once someone accepts your request, their stories appear here.</p>
-        <Link to="/family" className="mt-3 inline-block rounded-lg bg-ink px-4 py-2 text-paper">
-          Add family or friends
-        </Link>
-      </div>
+      <ScreenBody>
+        <Header title="object stories" back="/" />
+        <ErrorState message={family.error.message} onRetry={() => family.refetch()} />
+      </ScreenBody>
     )
-  }
+  if (!family.data) return <CreateFamily />
+
+  const waiting = (board.incoming.data ?? []).filter((r) => r.status === 'pending').length
+
   return (
-    <>
-      {(['family', 'friend'] as const).map((k) => {
-        const group = people.filter((p) => p.kind === k)
-        if (group.length === 0) return null
-        return (
-          <section key={k} className="mb-6">
-            <h2 className="mb-2 font-serif text-xl">{k === 'family' ? 'Family' : 'Friends'}</h2>
-            <ul className="divide-y divide-ink/10 rounded-xl bg-white shadow">
-              {group.map((p) => (
-                <li key={p.user_id}>
-                  <button
-                    onClick={() => onPick(p.user_id)}
-                    className="flex w-full items-center justify-between px-4 py-3 text-left"
-                  >
-                    <span className="text-lg">{p.display_name}</span>
-                    <span className="text-sm text-muted">
-                      {p.story_count} {p.story_count === 1 ? 'story' : 'stories'}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </section>
-        )
-      })}
-    </>
+    <ScreenBody screen="object-stories">
+      <Header title="object stories" back="/" />
+      <Tabs
+        tabs={[
+          { id: 'stories', label: 'stories' },
+          { id: 'requests', label: 'requests', count: waiting },
+        ]}
+        value={tab}
+        onChange={(t) => setParams(t === 'stories' ? {} : { tab: t }, { replace: true })}
+      />
+      {tab === 'stories' ? (
+        <StoriesTab board={board} archive={archive} />
+      ) : (
+        <RequestsTab board={board} />
+      )}
+    </ScreenBody>
   )
 }
 
-function StoryCard({ story: s }: { story: Schemas['ArchiveStory'] }) {
+type Board = ReturnType<typeof useRequestBoard>
+
+function StoriesTab({
+  board,
+  archive,
+}: {
+  board: Board
+  archive: UseQueryResult<Schemas['ArchiveStory'][]>
+}) {
+  const objects = board.heirlooms.data ?? []
+  const stories = archive.data ?? []
+  const storyOf = (id: string) => stories.find((s) => s.heirloom_id === id)
+  const extra = stories.filter((s) => !objects.some((h) => h.id === s.heirloom_id))
+  const open = [...(board.sent.data ?? []), ...(board.incoming.data ?? [])].filter((r) => isOpen(r.status))
+
   return (
-    <Link to={`/h/${s.heirloom_id}`} className="overflow-hidden rounded-xl bg-white shadow">
-      {s.cover_url && <img src={s.cover_url} className="aspect-video w-full object-cover" alt="" />}
-      <div className="p-4">
-        <p className="font-serif text-xl">{s.title}</p>
-        {s.storyteller_name && <p className="text-sm text-muted">Told by {s.storyteller_name}</p>}
-        {s.object_title && s.object_title !== s.title && (
-          <p className="text-sm text-muted">{s.object_title}</p>
-        )}
-      </div>
-    </Link>
+    <div className="flex flex-col gap-4">
+      <Button to="/capture">
+        <Plus className="size-7" strokeWidth={2.4} /> capture an object
+      </Button>
+      {board.heirlooms.isLoading ? (
+        <Loading label="finding your objects…" />
+      ) : board.heirlooms.isError ? (
+        <ErrorState message={board.heirlooms.error.message} onRetry={() => board.heirlooms.refetch()} />
+      ) : objects.length === 0 && extra.length === 0 ? (
+        <EmptyState title="no objects yet">
+          photograph something your family treasures, then ask who knows its story.
+        </EmptyState>
+      ) : (
+        <>
+          {archive.isError && (
+            <ErrorState message="we could not load who told each story." onRetry={() => archive.refetch()} />
+          )}
+          {objects.map((h) => (
+            <ObjectCard
+              key={h.id}
+              id={h.id}
+              title={h.title}
+              cover={h.cover_url}
+              story={storyOf(h.id)}
+              requests={open.filter((r) => r.heirloom_id === h.id)}
+            />
+          ))}
+          {extra.map((s) => (
+            <ObjectCard
+              key={s.heirloom_id}
+              id={s.heirloom_id}
+              title={s.object_title ?? s.title}
+              cover={s.cover_url}
+              story={s}
+              requests={[]}
+            />
+          ))}
+        </>
+      )}
+    </div>
+  )
+}
+
+function ObjectCard({
+  id,
+  title,
+  cover,
+  story,
+  requests,
+}: {
+  id: string
+  title?: string | null
+  cover?: string | null
+  story?: Schemas['ArchiveStory']
+  requests: Schemas['StoryRequest'][]
+}) {
+  const first = requests[0]
+  return (
+    <Card className="flex flex-col gap-3 p-3">
+      <Link to={`/h/${id}`} className="flex items-center gap-3">
+        <ObjectThumb src={cover} className="size-24" />
+        <div className="min-w-0 flex-1">
+          <p className="font-hand text-[1.6rem] leading-tight break-words">{title ?? 'new object'}</p>
+          {story?.storyteller_name && (
+            <p className="font-sans text-[1.15rem] leading-snug break-words text-muted">
+              told by {story.storyteller_name}
+            </p>
+          )}
+          {!story && !first && (
+            <p className="font-sans text-[1.1rem] leading-snug text-muted">no story yet</p>
+          )}
+        </div>
+      </Link>
+      {story && <StoryAudio heirloomId={id} />}
+      {first && (
+        <Link
+          to={`/requests/${first.id}`}
+          className="hand-box flex items-start gap-2 border-2 border-dashed border-ink/60 px-3 py-2 font-sans text-[1.1rem] leading-snug"
+        >
+          <MessageCircle className="mt-0.5 size-5 shrink-0" strokeWidth={2.2} aria-hidden />
+          <span className="min-w-0 break-words">
+            {requests.length === 1 ? '1 pending request' : `${requests.length} pending requests`}
+            {first.message && <span className="block text-muted">{first.message}</span>}
+          </span>
+        </Link>
+      )}
+    </Card>
+  )
+}
+
+/** The storyteller's own first recording, when the story has one. */
+function StoryAudio({ heirloomId }: { heirloomId: string }) {
+  const story = useQuery({
+    queryKey: ['story', heirloomId],
+    queryFn: async () =>
+      (await api.GET('/api/stories/{heirloom_id}', { params: { path: { heirloom_id: heirloomId } } })).data,
+  })
+  const rec = story.data?.recordings[0]
+  if (!rec) return null
+  return <AudioPlayer src={rec.audio_url} durationMs={rec.duration_ms} label="play their recording" />
+}
+
+function RequestsTab({ board }: { board: Board }) {
+  const { sent, incoming, people, heirloomOf } = board
+  if (sent.isLoading || incoming.isLoading) return <Loading label="loading requests…" />
+  if (sent.isError || incoming.isError)
+    return (
+      <ErrorState
+        onRetry={() => {
+          sent.refetch()
+          incoming.refetch()
+        }}
+      />
+    )
+  const forMe = incoming.data ?? []
+  const mine = sent.data ?? []
+  if (forMe.length === 0 && mine.length === 0)
+    return (
+      <EmptyState title="no requests yet" action={<Button to="/capture">capture an object</Button>}>
+        capture an object and ask a relative to tell its story.
+      </EmptyState>
+    )
+  return (
+    <div className="flex flex-col gap-6">
+      {forMe.length > 0 && (
+        <section className="flex flex-col gap-3">
+          <h2 className="font-hand text-[1.7rem] leading-none">asked of you</h2>
+          {forMe.map((r) => (
+            <RequestCard
+              key={r.id}
+              r={r}
+              side="incoming"
+              heirloom={heirloomOf(r.heirloom_id)}
+              name={people.nameOf(r.listener_id)}
+            />
+          ))}
+        </section>
+      )}
+      {mine.length > 0 && (
+        <section className="flex flex-col gap-3">
+          <h2 className="font-hand text-[1.7rem] leading-none">you asked</h2>
+          {mine.map((r) => (
+            <RequestCard
+              key={r.id}
+              r={r}
+              side="sent"
+              heirloom={heirloomOf(r.heirloom_id)}
+              name={people.nameOf(r.storyteller_id)}
+            />
+          ))}
+        </section>
+      )}
+    </div>
   )
 }
 
@@ -177,32 +249,30 @@ function CreateFamily() {
   const [name, setName] = useState('')
   const [yourName, setYourName] = useState('')
   const create = useMutation({
-    mutationFn: () => api.POST('/api/families', { body: { name, your_name: yourName } }),
+    mutationFn: async () => {
+      const { error } = await api.POST('/api/families', { body: { name, your_name: yourName } })
+      if (error) throw new Error(formatApiError(error, 'we could not create your family.'))
+    },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['families'] }),
   })
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-sm flex-col justify-center gap-3 px-4">
-      <h1 className="font-serif text-3xl">Start your family's Lorebook</h1>
-      <input
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="Family name"
-        className="rounded-lg border border-ink/20 bg-white px-4 py-3"
-      />
-      <input
-        value={yourName}
-        onChange={(e) => setYourName(e.target.value)}
-        placeholder="Your name"
-        className="rounded-lg border border-ink/20 bg-white px-4 py-3"
-      />
-      <button
-        disabled={!name || !yourName || create.isPending}
-        onClick={() => create.mutate()}
-        className="rounded-lg bg-ink px-4 py-3 text-paper disabled:opacity-40"
+    <ScreenBody screen="create-family">
+      <Header title="start your family" back="/" />
+      <form
+        className="flex flex-col gap-4"
+        onSubmit={(e) => {
+          e.preventDefault()
+          create.mutate()
+        }}
       >
-        Create
-      </button>
-    </main>
+        <TextField label="family name" value={name} onChange={setName} />
+        <TextField label="your name" value={yourName} onChange={setYourName} autoComplete="given-name" />
+        <FormError>{create.error?.message}</FormError>
+        <Button type="submit" disabled={!name.trim() || !yourName.trim() || create.isPending}>
+          {create.isPending ? 'creating…' : 'create'}
+        </Button>
+      </form>
+    </ScreenBody>
   )
 }

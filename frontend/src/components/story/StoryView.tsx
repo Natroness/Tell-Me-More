@@ -1,150 +1,126 @@
+import { BookOpen, ExternalLink, Pause, Play, Sparkles } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { ObjectPhoto } from '@/components/story/parts'
+import { AudioPlayer, Avatar, Card, Chip, Disclosure, SourceTag } from '@/components/ui/chrome'
 import type { Schemas } from '@/lib/api'
+import { useDisplayMode } from '@/lib/displayMode'
 import { cn } from '@/lib/utils'
 
 type Story = Schemas['Story']
 type Block = Story['blocks'][number]
 type Sentence = Schemas['Sentence']
-type FactKind = Schemas['Fact']['kind']
+type Fact = Schemas['Fact']
+type FactKind = Fact['kind']
+type Segment = Schemas['ResolvedSegment']
+type Link = { url: string; title: string; retrieved_at?: string }
 
-// What the player is doing: one tapped clip that stops at its end, or every answer in order.
-type Mode = { kind: 'clip'; endMs: number } | { kind: 'all'; index: number } | null
-
-const KIND_STYLE: Record<FactKind, string> = {
-  memory: 'decoration-memory',
-  observation: 'decoration-observation',
-  history: 'decoration-history',
-  inference: 'decoration-inference decoration-dotted italic',
-}
-
-function clock(ms: number) {
-  const s = Math.round(ms / 1000)
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
-}
-
-/** Renders a story you can listen to: the whole telling, or any sentence from its moment. */
+/**
+ * Screen 16. The storyteller's original recordings come first; the written story keeps family
+ * words (solid underline, tap to hear that moment), photo observations (dashed), AI suggestions
+ * (dotted, marked) and checked history (book, with sources) visibly apart.
+ */
 export function StoryView({
   story,
-  storytellerName,
-  onFollowUp,
-  photoAction,
+  coverUrl,
+  children,
 }: {
   story: Story
-  storytellerName?: string
-  onFollowUp?: () => void
-  /** Drawn over each photo, keyed by its media id (the immersive-world button). */
-  photoAction?: (mediaId: string) => ReactNode
+  coverUrl?: string | null
+  /** Secondary extras (storytime video, 3d world, actions) shown below the story. */
+  children?: ReactNode
 }) {
+  const { mode } = useDisplayMode()
+  const root = useRef<HTMLElement>(null)
   const audio = useRef<HTMLAudioElement>(null)
-  const mode = useRef<Mode>(null)
-  const [src, setSrc] = useState<string | null>(null)
-  const [atMs, setAtMs] = useState(0)
-  const [playing, setPlaying] = useState(false)
-  const [question, setQuestion] = useState<string | null>(null)
-  const [failed, setFailed] = useState(false)
+  const [playing, setPlaying] = useState<Segment | null>(null)
 
-  const recordings = story.recordings
-  const teller = storytellerName ?? (recordings[0] && story.people[recordings[0].speaker_id])
-  const totalMs = recordings.reduce((sum, r) => sum + (r.duration_ms ?? 0), 0)
-  const segments = Object.values(story.segments)
-  const nowSegment = src
-    ? segments.find((s) => s.audio_url === src && s.start_ms <= atMs && atMs < s.end_ms)
-    : undefined
-
+  // One voice at a time: starting any player on the page pauses the others.
   useEffect(() => {
-    // So the player's own Play button starts the telling instead of sitting empty.
-    if (recordings[0] && audio.current && !audio.current.src) load(recordings[0].audio_url)
-  }, [recordings])
-
-  function load(url: string) {
-    const el = audio.current!
-    if (el.dataset.src !== url) {
-      el.src = url
-      el.dataset.src = url
-      setSrc(url)
+    const el = root.current
+    if (!el) return
+    const onPlay = (e: Event) => {
+      el.querySelectorAll('audio, video').forEach((m) => {
+        if (m !== e.target) (m as HTMLMediaElement).pause()
+      })
     }
-    return el
-  }
+    el.addEventListener('play', onPlay, true)
+    return () => el.removeEventListener('play', onPlay, true)
+  }, [])
 
-  // iPhone Safari loads nothing before play() and allows play() only inside the tap itself,
-  // so play first and seek once the clip's length is known.
-  function start(el: HTMLAudioElement, fromMs: number) {
-    setFailed(false)
-    const seek = () => {
-      el.currentTime = fromMs / 1000
-    }
-    if (el.readyState >= 1) seek()
-    else el.addEventListener('loadedmetadata', seek, { once: true })
-    el.play().catch(() => setFailed(true))
-  }
-
-  function playSegment(id: string) {
-    const seg = story.segments[id]
-    if (!seg || !audio.current) return
-    mode.current = { kind: 'clip', endMs: seg.end_ms }
-    setQuestion(null)
-    start(load(seg.audio_url), seg.start_ms)
-  }
-
-  function playAll(index: number) {
-    const rec = recordings[index]
-    if (!rec || !audio.current) {
-      mode.current = null
-      setQuestion(null)
+  function play(segmentId: string) {
+    const seg = story.segments[segmentId]
+    const a = audio.current
+    if (!seg || !a) return
+    if (playing?.id === seg.id && !a.paused) {
+      a.pause()
       return
     }
-    mode.current = { kind: 'all', index }
-    setQuestion(rec.question ?? null)
-    start(load(rec.audio_url), 0)
+    if (a.src !== seg.audio_url) a.src = seg.audio_url
+    a.currentTime = seg.start_ms / 1000
+    setPlaying(seg)
+    void a.play().catch(() => a.paused && setPlaying(null))
   }
 
-  function onTimeUpdate() {
-    const el = audio.current!
-    const ms = el.currentTime * 1000
-    setAtMs(ms)
-    if (mode.current?.kind === 'clip' && ms >= mode.current.endMs) {
-      el.pause()
-      mode.current = null
+  const name = (id?: string | null) => (id ? story.people[id] : undefined)
+  const teller = name(story.recordings[0]?.speaker_id) ?? name(firstNarrator(story))
+  const photo = coverUrl ?? Object.values(story.photos)[0]
+  const usedMemories = new Set(story.blocks.flatMap((b) => (b.type === 'memory' ? [b.memory_note_id] : [])))
+  const extraMemories = Object.entries(story.memories).filter(([id, text]) => !usedMemories.has(id) && text.trim())
+  const body = mode === 'extra_simple' ? 'text-[1.45rem]' : 'text-[1.25rem]'
+
+  function segmentFor(s: Sentence): string | undefined {
+    const direct = s.cites.find((c) => c.kind === 'segment')
+    if (direct) return direct.segment_id
+    for (const c of s.cites) {
+      if (c.kind !== 'fact') continue
+      const src = story.facts[c.fact_id]?.source
+      const id = src?.kind === 'memory' ? src.segment_ids?.find((sid) => story.segments[sid]) : undefined
+      if (id) return id
     }
-  }
-
-  function onPlay() {
-    setPlaying(true)
-    if (mode.current) return
-    // Started from the player's own controls: carry on through the telling from here.
-    const index = recordings.findIndex((r) => r.audio_url === audio.current?.dataset.src)
-    if (index >= 0) {
-      mode.current = { kind: 'all', index }
-      setQuestion(recordings[index].question ?? null)
-    }
-  }
-
-  function onEnded() {
-    setPlaying(false)
-    if (mode.current?.kind === 'all') playAll(mode.current.index + 1)
-    else mode.current = null
   }
 
   function kindOf(s: Sentence): FactKind {
     if (s.cites.some((c) => c.kind === 'segment')) return 'memory'
     const kinds = s.cites.flatMap((c) => (c.kind === 'fact' ? [story.facts[c.fact_id]?.kind] : []))
-    return kinds.find((k) => k && k !== 'inference') ?? 'inference'
+    return kinds.find((k) => k === 'memory') ?? kinds.find((k) => k && k !== 'inference') ?? 'inference'
   }
 
   function renderSentence(s: Sentence, i: number) {
-    const seg = s.cites.find((c) => c.kind === 'segment')
+    const kind = kindOf(s)
+    const seg = kind === 'memory' ? segmentFor(s) : undefined
+    const active = seg != null && playing?.id === seg
+    if (seg)
+      return (
+        <span key={i}>
+          <button
+            type="button"
+            onClick={() => play(seg)}
+            className={cn(
+              'inline cursor-pointer text-left underline decoration-ink decoration-solid decoration-2 underline-offset-[5px] hover:bg-sun/40',
+              active && 'bg-sun text-black',
+            )}
+          >
+            {s.text}
+          </button>{' '}
+        </span>
+      )
     return (
-      <span
-        key={i}
-        onClick={seg ? () => playSegment(seg.segment_id) : undefined}
-        className={cn(
-          'underline decoration-2 underline-offset-4',
-          KIND_STYLE[kindOf(s)],
-          seg && 'cursor-pointer',
-          seg && nowSegment && seg.segment_id === nowSegment.id && 'bg-memory/15',
+      <span key={i}>
+        <span
+          className={cn(
+            kind === 'memory' && 'underline decoration-ink decoration-solid decoration-2 underline-offset-[5px]',
+            kind === 'observation' && 'underline decoration-ink/60 decoration-dashed decoration-[1.5px] underline-offset-[5px]',
+            kind === 'inference' && 'underline decoration-muted decoration-dotted decoration-2 underline-offset-[5px]',
+          )}
+        >
+          {s.text}
+        </span>
+        {kind === 'inference' && (
+          <Sparkles className="ml-0.5 inline size-3.5 align-super text-muted" aria-label="ai suggestion" role="img" />
         )}
-      >
-        {s.text}{' '}
+        {kind === 'history' && (
+          <BookOpen className="ml-0.5 inline size-3.5 align-super" aria-label="history" role="img" />
+        )}{' '}
       </span>
     )
   }
@@ -152,144 +128,404 @@ export function StoryView({
   function renderBlock(b: Block, i: number) {
     switch (b.type) {
       case 'heading':
-        return <h2 key={i} className="mt-8 font-serif text-2xl">{b.text}</h2>
+        return (
+          <h3 key={i} className="mt-4 font-hand text-[1.8rem] leading-tight break-words">
+            {b.text}
+          </h3>
+        )
       case 'paragraph':
-        return <p key={i} className="leading-relaxed">{b.sentences.map(renderSentence)}</p>
+        return (
+          <p key={i} className={cn('font-sans leading-relaxed break-words', body)}>
+            {b.sentences.map(renderSentence)}
+          </p>
+        )
       case 'quote': {
         const seg = story.segments[b.segment_id]
+        if (!seg) return null
+        const who = name(b.speaker_id)
         return (
-          <blockquote
-            key={i}
-            onClick={() => playSegment(b.segment_id)}
-            className={cn(
-              'cursor-pointer border-l-4 border-memory pl-4 font-serif text-xl italic',
-              nowSegment?.id === b.segment_id && 'bg-memory/15',
+          <figure key={i} className="flex flex-col gap-1 border-l-4 border-sun pl-4">
+            <button
+              type="button"
+              onClick={() => play(b.segment_id)}
+              className={cn(
+                'text-left font-hand text-[1.6rem] leading-snug break-words',
+                playing?.id === seg.id && 'bg-sun text-black',
+              )}
+            >
+              “{seg.text}”
+            </button>
+            {seg.text_en && seg.text_en !== seg.text && (
+              <p className="font-sans text-[1.1rem] leading-snug break-words text-muted">“{seg.text_en}”</p>
             )}
-          >
-            “{seg?.text_en ?? seg?.text}”
-            {story.people[b.speaker_id] && (
-              <span className="mt-1 block text-sm not-italic text-muted">
-                {story.people[b.speaker_id]} · tap to hear
-              </span>
-            )}
-          </blockquote>
+            <figcaption className="flex items-center gap-2 font-sans text-[1rem] text-muted">
+              <Play className="size-3.5" fill="currentColor" aria-hidden />
+              {who ? `${who}, in their own voice` : 'in their own voice'}
+            </figcaption>
+          </figure>
         )
       }
-      case 'context':
+      case 'context': {
+        const cards = b.card_ids.flatMap((id) => (story.context_cards[id] ? [story.context_cards[id]] : []))
+        if (cards.length === 0) return null
         return (
-          <aside key={i} className="grid gap-3">
-            {b.card_ids.map((id) => {
-              const card = story.context_cards[id]
-              if (!card) return null
+          <Disclosure
+            key={i}
+            summary={
+              <span className="flex items-center gap-2">
+                <BookOpen className="size-5 shrink-0" strokeWidth={2.2} aria-hidden />
+                historical context
+              </span>
+            }
+          >
+            <div className="flex flex-col gap-4">
+              {cards.map((card) => (
+                <ContextCardView key={card.id} card={card} />
+              ))}
+            </div>
+          </Disclosure>
+        )
+      }
+      case 'timeline':
+        if (b.events.length === 0) return null
+        return (
+          <ol key={i} className="flex flex-col gap-3 border-l-2 border-ink pl-5">
+            {b.events.map((e) => {
+              const kind = story.facts[e.fact_id]?.kind
               return (
-                <div key={id} className="rounded-lg border-l-4 border-history bg-white p-4 text-sm">
-                  <p className="font-semibold">{card.year}{card.place && `, ${card.place}`}</p>
-                  <p>{card.summary}</p>
-                </div>
+                <li key={e.fact_id} className="relative font-sans text-[1.15rem] leading-snug break-words">
+                  <span className="absolute top-1.5 -left-[1.72rem] size-3 rounded-full border-2 border-ink bg-sun" aria-hidden />
+                  <span className="font-hand text-[1.3rem]">{e.year}</span>{' '}
+                  <span className={cn(kind === 'inference' && 'underline decoration-muted decoration-dotted underline-offset-4')}>
+                    {e.label}
+                  </span>
+                  {kind && kind !== 'memory' && (
+                    <span className="ml-2 align-middle">
+                      <SourceTag kind={kind} />
+                    </span>
+                  )}
+                </li>
               )
             })}
-          </aside>
-        )
-      case 'timeline':
-        return (
-          <ol key={i} className="border-l border-ink/20 pl-4">
-            {b.events.map((e) => (
-              <li key={e.fact_id}><span className="font-semibold">{e.year}</span> {e.label}</li>
-            ))}
           </ol>
         )
       case 'photo': {
-        const url = story.photos[b.media_id]
-        if (!url) return null
-        const action = photoAction?.(b.media_id)
+        const src = story.photos[b.media_id]
+        if (!src) return null
         return (
-          <figure key={i} className="overflow-hidden rounded-xl bg-white shadow">
-            <div className="relative">
-              <img src={url} alt={b.caption?.text ?? ''} className="w-full object-cover" />
-              {action && <div className="absolute inset-x-3 bottom-3">{action}</div>}
+          <figure key={i} className="flex flex-col gap-2">
+            <div className="hand-box overflow-hidden border-2 border-ink">
+              <img src={src} alt={b.caption?.text ?? ''} className="w-full object-cover" />
             </div>
-            {b.caption && <figcaption className="p-3 text-sm">{renderSentence(b.caption, 0)}</figcaption>}
+            {b.caption && (
+              <figcaption className="font-sans text-[1.1rem] leading-snug break-words text-muted">
+                {renderSentence(b.caption, 0)}
+              </figcaption>
+            )}
           </figure>
         )
       }
       case 'people': {
-        const names = b.person_ids.map((id) => story.people[id]).filter(Boolean)
+        const names = b.person_ids.flatMap((id) => (story.people[id] ? [{ id, name: story.people[id] }] : []))
         if (names.length === 0) return null
         return (
-          <section key={i} className="rounded-xl bg-white p-4 shadow">
-            <p className="font-semibold">People in this story</p>
-            <p className="mt-1 text-sm">{names.join(', ')}</p>
+          <section key={i} className="flex flex-col gap-2">
+            <p className="font-sans text-[1.1rem] text-muted">people in this story</p>
+            <ul className="flex flex-wrap gap-4">
+              {names.map((p) => (
+                <li key={p.id} className="flex w-20 flex-col items-center gap-1 text-center">
+                  <Avatar name={p.name} />
+                  <span className="w-full font-sans text-[1rem] leading-tight break-words">{p.name}</span>
+                </li>
+              ))}
+            </ul>
           </section>
         )
       }
       case 'memory': {
         const text = story.memories[b.memory_note_id]
         if (!text) return null
-        return (
-          <section key={i} className="rounded-xl border-l-4 border-memory bg-white p-4 shadow">
-            <p className="text-sm font-semibold">A relative&apos;s addition</p>
-            <p className="mt-1">{text}</p>
-          </section>
-        )
+        return <MemoryCard key={i} text={text} />
       }
     }
   }
 
   return (
-    <article className="flex flex-col gap-4">
-      <h1 className="font-serif text-4xl">{story.title}</h1>
-      {teller && <p className="text-muted">Told by {teller}</p>}
-      {story.dek && <p className="text-lg text-muted">{story.dek}</p>}
-      {recordings.length > 0 && (
-        <button
-          onClick={() => (playing ? audio.current?.pause() : mode.current ? audio.current?.play() : playAll(0))}
-          className="flex items-center justify-between gap-3 rounded-xl bg-ink px-5 py-4 text-left text-paper"
-        >
-          <span className="text-lg">
-            {playing ? 'Pause' : `Listen to ${teller ?? 'the storyteller'} tell it`}
-          </span>
-          <span className="text-sm opacity-80">
-            {recordings.length} {recordings.length === 1 ? 'answer' : 'answers'}
-            {totalMs > 0 && ` · ${clock(totalMs)}`}
-          </span>
-        </button>
-      )}
-      <p className="rounded bg-ink/5 px-2 py-1 text-xs text-muted">
-        Tap an underlined sentence to hear that moment. Dotted lines are Tell Me More&apos;s notes,
-        kept separate from family words.
-      </p>
-      {story.blocks.map(renderBlock)}
-      {onFollowUp && (
-        <button
-          onClick={onFollowUp}
-          className="rounded-xl border border-ink/20 bg-white px-4 py-3"
-        >
-          Ask a follow-up
-        </button>
-      )}
-      <div className="sticky bottom-4 flex flex-col gap-2 rounded-xl bg-paper/95 p-2 shadow backdrop-blur">
-        {playing && (question || nowSegment) && (
-          <div className="px-2 text-sm" aria-live="polite">
-            {question && <p className="text-muted">Asked: {question}</p>}
-            {nowSegment && <p>“{nowSegment.text_en ?? nowSegment.text}”</p>}
-          </div>
-        )}
-        {failed && (
-          <p className="px-2 text-sm text-red-900">
-            That recording wouldn&apos;t play. Check your connection and tap it again.
-          </p>
-        )}
-        <audio
-          ref={audio}
-          controls
-          preload="none"
-          onPlay={onPlay}
-          onPause={() => setPlaying(false)}
-          onEnded={onEnded}
-          onTimeUpdate={onTimeUpdate}
-          className="w-full"
-        />
+    <article ref={root} className="flex flex-col gap-4">
+      {photo && <ObjectPhoto src={photo} alt={story.title} />}
+      <div className="flex flex-col gap-1">
+        <h2 className="font-hand text-[2.3rem] leading-[1.05] break-words">{story.title}</h2>
+        {teller && <p className="font-sans text-[1.25rem] text-muted">told by {teller}</p>}
       </div>
+
+      {story.recordings.length > 0 && (
+        <section className="flex flex-col gap-3" aria-label="original recordings">
+          {story.recordings.map((r, idx) => (
+            <div key={r.turn_id} className="flex flex-col gap-1">
+              {story.recordings.length > 1 && r.question && (
+                <p className="font-sans text-[1.05rem] leading-snug break-words text-muted">{r.question}</p>
+              )}
+              <AudioPlayer
+                src={r.audio_url}
+                durationMs={r.duration_ms}
+                label={idx === 0 ? 'play the original recording' : 'play this answer'}
+              />
+            </div>
+          ))}
+          <div>
+            <Chip tone="sun">original voice</Chip>
+          </div>
+        </section>
+      )}
+
+      <Transcript story={story} onPlay={play} playingId={playing?.id} />
+
+      {story.dek && <p className={cn('font-sans leading-snug break-words text-muted', body)}>{story.dek}</p>}
+
+      <Legend />
+      <div className="flex flex-col gap-4">{story.blocks.map(renderBlock)}</div>
+
+      {extraMemories.length > 0 && (
+        <section className="flex flex-col gap-3">
+          <h3 className="font-hand text-[1.7rem] leading-tight">memories from family</h3>
+          {extraMemories.map(([id, text]) => (
+            <MemoryCard key={id} text={text} />
+          ))}
+        </section>
+      )}
+
+      <Sources story={story} />
+
+      {children}
+
+      {playing && (
+        <div className="sticky bottom-3 z-10">
+          <Card className="flex items-center gap-3 bg-paper">
+            <button
+              type="button"
+              onClick={() => audio.current?.pause()}
+              aria-label="pause"
+              className="grid size-12 shrink-0 place-items-center rounded-full border-2 border-ink bg-ink text-paper"
+            >
+              <Pause className="size-5" fill="currentColor" />
+            </button>
+            <p className="min-w-0 flex-1 font-sans text-[1.1rem] leading-snug break-words">
+              {name(playing.speaker_id) ? `${name(playing.speaker_id)}'s own voice` : 'the original recording'}
+            </p>
+          </Card>
+        </div>
+      )}
+      <audio
+        ref={audio}
+        preload="none"
+        className="hidden"
+        onPause={(e) => e.currentTarget.paused && setPlaying(null)}
+        onEnded={() => setPlaying(null)}
+        onTimeUpdate={(e) => {
+          if (playing && e.currentTarget.currentTime * 1000 >= playing.end_ms) e.currentTarget.pause()
+        }}
+      />
     </article>
+  )
+}
+
+function firstNarrator(story: Story) {
+  for (const f of Object.values(story.facts)) if (f.source.kind === 'memory') return f.source.narrator_id
+}
+
+function Legend() {
+  return (
+    <Disclosure summary="how to read this story">
+      <ul className="flex flex-col gap-2">
+        <li>
+          <span className="underline decoration-ink decoration-solid decoration-2 underline-offset-4">solid line</span> — the
+          family's own words. tap to hear that moment.
+        </li>
+        <li>
+          <span className="underline decoration-ink/60 decoration-dashed underline-offset-4">dashed line</span> — seen in the
+          photo.
+        </li>
+        <li>
+          <span className="underline decoration-muted decoration-dotted decoration-2 underline-offset-4">dotted line</span>{' '}
+          <Sparkles className="inline size-3.5" aria-hidden /> — an ai suggestion, not something the family said.
+        </li>
+        <li>
+          <BookOpen className="inline size-4" aria-hidden /> — history from checked sources.
+        </li>
+      </ul>
+    </Disclosure>
+  )
+}
+
+function MemoryCard({ text }: { text: string }) {
+  return (
+    <Card className="flex flex-col gap-2">
+      <div>
+        <SourceTag kind="memory" />
+      </div>
+      <p className="font-sans text-[1.2rem] leading-snug break-words">{text}</p>
+    </Card>
+  )
+}
+
+function ContextCardView({ card }: { card: Schemas['ContextCard'] }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <p className="font-hand text-[1.35rem] leading-tight break-words">
+        {card.topic} · {card.year}
+        {card.place ? `, ${card.place}` : ''}
+      </p>
+      <p className="break-words">{card.summary}</p>
+      <SourceLinks links={card.sources.flatMap(asLink)} />
+    </div>
+  )
+}
+
+function asLink(s: Record<string, unknown>): Link[] {
+  return typeof s.url === 'string'
+    ? [{ url: s.url, title: typeof s.title === 'string' && s.title ? s.title : hostOf(s.url), retrieved_at: typeof s.retrieved_at === 'string' ? s.retrieved_at : undefined }]
+    : []
+}
+
+function hostOf(url: string) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '')
+  } catch {
+    return 'source'
+  }
+}
+
+function SourceLinks({ links }: { links: Link[] }) {
+  if (links.length === 0) return null
+  return (
+    <ul className="flex flex-col gap-1">
+      {links.map((l, i) => (
+        <li key={`${l.url}-${i}`} className="text-[1rem] leading-snug">
+          <a href={l.url} target="_blank" rel="noreferrer" className="inline-flex items-start gap-1 break-all underline underline-offset-4">
+            <ExternalLink className="mt-1 size-3.5 shrink-0" aria-hidden />
+            <span className="break-words">{l.title}</span>
+          </a>
+          {l.retrieved_at && (
+            <span className="text-muted"> · checked {new Date(l.retrieved_at).toLocaleDateString()}</span>
+          )}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+/** Every answer's words in order, each line playable from its moment in the recording. */
+function Transcript({
+  story,
+  onPlay,
+  playingId,
+}: {
+  story: Story
+  onPlay: (segmentId: string) => void
+  playingId?: string
+}) {
+  const segments = Object.values(story.segments)
+  if (segments.length === 0) return null
+  const byRecording = story.recordings.map((r) => ({
+    r,
+    lines: segments.filter((s) => s.audio_url === r.audio_url).sort((a, b) => a.start_ms - b.start_ms),
+  }))
+  const placed = new Set(byRecording.flatMap((g) => g.lines.map((s) => s.id)))
+  const rest = segments.filter((s) => !placed.has(s.id)).sort((a, b) => a.start_ms - b.start_ms)
+  const groups = rest.length ? [...byRecording, { r: null, lines: rest }] : byRecording
+
+  return (
+    <Disclosure summary="view transcript">
+      <div className="flex flex-col gap-4">
+        {groups.map((g, gi) =>
+          g.lines.length === 0 ? null : (
+            <div key={g.r?.turn_id ?? `rest-${gi}`} className="flex flex-col gap-1">
+              {g.r?.question && <p className="text-[1.05rem] break-words text-muted">{g.r.question}</p>}
+              <p className="leading-relaxed break-words">
+                {g.lines.map((s) => (
+                  <span key={s.id}>
+                    <button
+                      type="button"
+                      onClick={() => onPlay(s.id)}
+                      className={cn('inline text-left hover:bg-sun/40', playingId === s.id && 'bg-sun text-black')}
+                    >
+                      {s.text}
+                    </button>{' '}
+                  </span>
+                ))}
+              </p>
+              {g.lines.some((s) => s.text_en && s.text_en !== s.text) && (
+                <p className="text-[1.05rem] leading-snug break-words text-muted">
+                  {g.lines.map((s) => s.text_en ?? s.text).join(' ')}
+                </p>
+              )}
+            </div>
+          ),
+        )}
+      </div>
+    </Disclosure>
+  )
+}
+
+/** Where history and photo lookups came from; AI suggestions say what they were based on. */
+function Sources({ story }: { story: Story }) {
+  const facts = Object.values(story.facts)
+  const history = facts.filter((f) => f.source.kind === 'history')
+  const looked = facts.filter((f) => f.source.kind === 'observation' && f.source.url)
+  const cards = Object.values(story.context_cards)
+  const guesses = facts.filter((f) => f.kind === 'inference')
+  if (!history.length && !looked.length && !cards.length && !guesses.length) return null
+  return (
+    <Disclosure
+      summary={
+        <span className="flex items-center gap-2">
+          <BookOpen className="size-5 shrink-0" strokeWidth={2.2} aria-hidden />
+          sources
+        </span>
+      }
+    >
+      <div className="flex flex-col gap-5">
+        {(history.length > 0 || cards.length > 0) && (
+          <section className="flex flex-col gap-3">
+            <SourceTag kind="history" />
+            {history.map((f) => (
+              <div key={f.id} className="flex flex-col gap-1">
+                <p className="break-words">{f.text}</p>
+                {f.source.kind === 'history' && <SourceLinks links={[f.source]} />}
+              </div>
+            ))}
+            {cards.map((c) => (
+              <ContextCardView key={c.id} card={c} />
+            ))}
+          </section>
+        )}
+        {looked.length > 0 && (
+          <section className="flex flex-col gap-3">
+            <SourceTag kind="observation" />
+            {looked.map((f) => (
+              <div key={f.id} className="flex flex-col gap-1">
+                <p className="break-words">{f.text}</p>
+                {f.source.kind === 'observation' && f.source.url && (
+                  <SourceLinks links={[{ url: f.source.url, title: hostOf(f.source.url) }]} />
+                )}
+              </div>
+            ))}
+          </section>
+        )}
+        {guesses.length > 0 && (
+          <section className="flex flex-col gap-3">
+            <SourceTag kind="inference" />
+            {guesses.map((f) => (
+              <p key={f.id} className="break-words text-muted">
+                {f.text}
+                {f.source.kind === 'inference' && f.source.based_on.length > 0 && (
+                  <span> · based on {f.source.based_on.length} {f.source.based_on.length === 1 ? 'detail' : 'details'}</span>
+                )}
+              </p>
+            ))}
+          </section>
+        )}
+      </div>
+    </Disclosure>
   )
 }

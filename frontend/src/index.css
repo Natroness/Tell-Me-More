@@ -1,20 +1,140 @@
 @import "tailwindcss";
 
-@theme {
-  --font-serif: "Fraunces", ui-serif, Georgia, serif;
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+@theme inline {
+  --font-serif: "Schoolbell", "Segoe Print", "Bradley Hand", cursive;
+  --font-sans: "Patrick Hand", "Segoe Print", ui-sans-serif, system-ui, sans-serif;
+  --font-hand: "Schoolbell", "Segoe Print", "Bradley Hand", cursive;
 
-  --color-paper: #faf6ef;
-  --color-ink: #2b2420;
-  --color-muted: #7a6e64;
+  --color-paper: var(--paper);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-stage: var(--stage);
+  --color-sun: #ffd43b;
 
-  /* Provenance colors (DESIGN.md §4.1) */
-  --color-memory: #c8862a;
-  --color-observation: #5f6b7a;
-  --color-history: #2f6db5;
-  --color-inference: #9a948d;
+  /* Provenance stays in the ink palette; components tell the kinds apart by label and line style. */
+  --color-memory: var(--ink);
+  --color-observation: var(--ink);
+  --color-history: var(--ink);
+  --color-inference: var(--muted);
+}
+
+:root {
+  --paper: #ffffff;
+  --ink: #161616;
+  --muted: #5c5c5c;
+  --stage: #ffffff;
+  --sun: #ffd43b;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #111111;
+    --ink: #f7f7f7;
+    --muted: #c8c8c8;
+    --stage: #111111;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --paper: #111111;
+  --ink: #f7f7f7;
+  --muted: #c8c8c8;
+  --stage: #111111;
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  --paper: #ffffff;
+  --ink: #161616;
+  --muted: #5c5c5c;
+  --stage: #ffffff;
+  color-scheme: light;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+#root {
+  display: flex;
+  min-height: 100dvh;
+  flex-direction: column;
 }
 
 body {
-  @apply bg-paper text-ink font-sans antialiased;
+  margin: 0;
+  background: var(--stage);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 1.125rem;
+  /* Both hand fonts ship one weight; faux bold smears the strokes. */
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Slightly uneven corners read as hand-drawn. */
+.hand-box {
+  border-radius: 1.3rem 1.1rem 1.4rem 1rem / 1.1rem 1.4rem 1rem 1.3rem;
+}
+
+.hand-pill {
+  border-radius: 2.2rem 1.9rem 2.1rem 1.8rem / 1.8rem 2.2rem 1.9rem 2.1rem;
+}
+
+::selection {
+  background: var(--sun);
+  color: #161616;
+}
+
+/* Legacy screens still use bg-white. Follow the reversed dark palette. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .bg-white {
+    background-color: var(--paper);
+  }
+}
+
+:root[data-theme="dark"] .bg-white {
+  background-color: var(--paper);
+}
+
+.age-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 16px;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  background: var(--sun);
+  cursor: pointer;
+}
+
+.age-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 30px;
+  height: 30px;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  background: var(--paper);
+  cursor: pointer;
+}
+
+.age-slider::-moz-range-track {
+  height: 16px;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  background: var(--sun);
+}
+
+.age-slider::-moz-range-thumb {
+  width: 30px;
+  height: 30px;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  background: var(--paper);
+  cursor: pointer;
 }

@@ -1,23 +1,15 @@
 import { supabase } from './supabase'
 
-// The transcript lands in well under a second and the question about a second later.
-const END_TIMEOUT_MS = 12_000
+const END_TIMEOUT_MS = 8_000
 
 /**
  * Streams an answer's PCM to the backend while the narrator speaks, so the transcript is ready
  * the moment they tap Done. Protocol in backend/app/routers/answer_stream.py.
  */
-/** What the server says once the answer is saved: the next question, or that it's over. */
-export type Reply = {
-  text: string
-  question: { id: string; text: string; number: number } | null
-  ended: boolean
-}
-
 export type AnswerStream = {
   send: (pcm: ArrayBuffer) => void
   /** Resolves once the transcript is saved; rejects if the caller should upload instead. */
-  end: () => Promise<Reply>
+  end: () => Promise<void>
   abort: () => void
 }
 
@@ -35,13 +27,11 @@ export function openAnswerStream(
   const pending: (ArrayBuffer | string)[] = []
   let started = false
   let failed = false
-  let done = false
-  let settle: { resolve: (r: Reply) => void; reject: (e: Error) => void } | null = null
+  let settle: { resolve: () => void; reject: (e: Error) => void } | null = null
 
   const send = (frame: ArrayBuffer | string) =>
     started ? ws.send(frame) : pending.push(frame)
   const fail = (why: string) => {
-    if (done) return // the server closes the socket after replying
     failed = true
     settle?.reject(new Error(why))
   }
@@ -53,12 +43,9 @@ export function openAnswerStream(
     started = true
   }
   ws.onmessage = (e: MessageEvent<string>) => {
-    const msg = JSON.parse(e.data) as { type: string; text?: string } & Partial<Reply>
+    const msg = JSON.parse(e.data) as { type: string; text?: string }
     if (msg.type === 'partial') onPartial(msg.text ?? '')
-    else if (msg.type === 'done') {
-      done = true
-      settle?.resolve({ text: msg.text ?? '', question: msg.question ?? null, ended: !!msg.ended })
-    }
+    else if (msg.type === 'done') settle?.resolve()
     else if (msg.type === 'error') fail('transcription failed')
   }
   ws.onerror = () => fail('connection failed')
@@ -67,11 +54,11 @@ export function openAnswerStream(
   return {
     send,
     end: () =>
-      new Promise<Reply>((resolve, reject) => {
+      new Promise<void>((resolve, reject) => {
         if (failed) return reject(new Error('stream already failed'))
         settle = { resolve, reject }
         send(JSON.stringify({ type: 'end' }))
-        // Past this, upload instead.
+        // The final transcript normally lands in well under a second; past this, upload instead.
         setTimeout(() => fail('timed out'), END_TIMEOUT_MS)
       }),
     abort: () => ws.close(),

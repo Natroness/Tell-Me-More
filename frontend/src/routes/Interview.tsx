@@ -1,324 +1,344 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
+import { Mic, Pause, Play } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router'
-import { openAnswerStream, type AnswerStream, type Reply } from '@/lib/answerStream'
+import { useLocation, useNavigate, useParams } from 'react-router'
+import { formatMs } from '@/components/story/draft'
+import { LiveWaveform, Thumb } from '@/components/story/parts'
+import {
+  Button,
+  Card,
+  Disclosure,
+  ErrorState,
+  FormError,
+  Header,
+  Loading,
+  Notice,
+  ScreenBody,
+  TextButton,
+} from '@/components/ui/chrome'
+import { openAnswerStream, type AnswerStream } from '@/lib/answerStream'
 import { api, putToSignedUrl, type Schemas } from '@/lib/api'
+import { formatApiError } from '@/lib/apiError'
+import { useDisplayMode } from '@/lib/displayMode'
 import { buzz, HAPTIC } from '@/lib/haptics'
 import { useLiveQuery } from '@/lib/realtime'
 import { startRecording, type Recording } from '@/lib/recorder'
 import { speak, stopSpeaking, unlockSpeech } from '@/lib/speech'
+import { useScreenTitle } from '@/lib/useScreenTitle'
+import { cn } from '@/lib/utils'
 
-// ready: waiting for the first tap, which lets the phone speak and listen.
-type Phase = 'ready' | 'speaking' | 'listening' | 'thinking' | 'ended'
-type Question = { id: string; text: string; number: number }
+export type InterviewState = { requestId?: string; asker?: string | null; message?: string }
 
-// Quiet this long after they've spoken ends the answer. Long enough for a thinking pause.
-const END_SILENCE_MS = 2_000
-const MAX_ANSWER_MS = 3 * 60_000
-const CHECK_MS = 100
-const CALIBRATE_MS = 400
-
-/**
- * A spoken conversation: the phone reads each question aloud, listens, and the next question
- * arrives on the same connection the answer streamed over (backend/app/routers/answer_stream.py).
- * Built to be used at arm's length, hands free (DESIGN.md §5.7).
- */
+/** Screen 14: one question at a time, recorded in the teller's own voice. */
 export function Interview() {
+  useScreenTitle('tell the story')
   const { interviewId } = useParams() as { interviewId: string }
   const navigate = useNavigate()
-  const path = { params: { path: { interview_id: interviewId } } }
-
-  const [phase, setPhaseState] = useState<Phase>('ready')
-  const phaseRef = useRef<Phase>('ready')
-  const setPhase = (p: Phase) => {
-    phaseRef.current = p
-    setPhaseState(p)
-  }
-  const [asked, setAsked] = useState<Question | null>(null)
-  const [caption, setCaption] = useState('')
-  const [heardSpeech, setHeardSpeech] = useState(false)
-  const [problem, setProblem] = useState<string | null>(null)
-  // Bumped whenever a question starts or the interview ends, so a voice that was cut off
-  // doesn't then open the mic for a question nobody is on any more.
-  const generation = useRef(0)
+  const from = (useLocation().state as InterviewState | null) ?? {}
+  const { mode } = useDisplayMode()
   const recording = useRef<Recording | null>(null)
   const stream = useRef<AnswerStream | null>(null)
-  // An answer slot not yet spoken into, kept when they ask to hear the question again.
-  const unused = useRef<Schemas['AnswerUpload'] | null>(null)
   const answer = useRef<Schemas['AnswerUpload'] | null>(null)
-  const watch = useRef<number | null>(null)
+  const [isRecording, setIsRecording] = useState(false)
+  const [starting, setStarting] = useState(false)
+  const [paused, setPaused] = useState(false)
+  const [caption, setCaption] = useState('')
+  const [micError, setMicError] = useState('')
+  const [level, setLevel] = useState<(() => number) | undefined>()
+  const elapsed = useElapsed(isRecording, paused)
+  const path = { params: { path: { interview_id: interviewId } } }
 
   const interview = useQuery({
     queryKey: ['interview', interviewId],
-    queryFn: async () => (await api.GET('/api/interviews/{interview_id}', path)).data,
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/interviews/{interview_id}', path)
+      if (error || !data) throw new Error(formatApiError(error, 'we could not open this interview.'))
+      return data
+    },
   })
   const turns = useQuery({
     queryKey: ['turns', interviewId],
     queryFn: async () => (await api.GET('/api/interviews/{interview_id}/turns', path)).data ?? [],
   })
+  const heirloomId = interview.data?.heirloom_id
+  const heirloom = useQuery({
+    queryKey: ['heirloom', heirloomId],
+    enabled: !!heirloomId,
+    queryFn: async () =>
+      (await api.GET('/api/heirlooms/{heirloom_id}', { params: { path: { heirloom_id: heirloomId! } } })).data,
+  })
   useLiveQuery('interview', `id=eq.${interviewId}`, ['interview', interviewId])
   useLiveQuery('turn', `interview_id=eq.${interviewId}`, ['turns', interviewId])
 
-  const language = interview.data?.language ?? 'en'
-  const max = interview.data?.max_questions ?? 10
-  const questions = (turns.data ?? []).filter((t) => t.role === 'question')
-  const latest = questions.at(-1)
-  const current: Question | null =
-    asked ?? (latest ? { id: latest.id, text: latest.text ?? '', number: questions.length } : null)
-  const over = interview.data?.state === 'wrapping_up' || interview.data?.state === 'done'
+  // Read each question aloud with the phone's own voice. Unlocking happened in the
+  // record tap, so later questions speak on their own; leaving stops the voice.
+  const latestQuestion = (turns.data ?? []).findLast((t) => t.role === 'question')
+  useEffect(() => {
+    if (latestQuestion?.text) void speak(latestQuestion.text, interview.data?.language ?? 'en')
+  }, [latestQuestion?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => stopSpeaking(), [])
 
+  // The transcript streams while they speak; if that fails, upload the recording instead.
+  const submit = useMutation({
+    mutationFn: async (wav: Blob) => {
+      const upload = answer.current!
+      const live = stream.current
+      stream.current = null
+      try {
+        await live!.end()
+      } catch {
+        live?.abort()
+        await putToSignedUrl(upload.upload_url, wav)
+        const { error } = await api.POST('/api/interviews/{interview_id}/answers/{turn_id}/complete', {
+          params: { path: { interview_id: interviewId, turn_id: upload.turn_id } },
+        })
+        if (error) throw new Error(formatApiError(error, "we couldn't save that answer. try again."))
+      }
+    },
+  })
+  const shareUrl = () => {
+    const q = new URLSearchParams()
+    if (from.requestId) q.set('request', from.requestId)
+    if (interview.data) q.set('narrator', interview.data.narrator_id)
+    return `/share/${heirloomId}?${q}`
+  }
   const finish = useMutation({
-    mutationFn: () => api.POST('/api/interviews/{interview_id}/finish', path),
+    mutationFn: async () => {
+      const { error } = await api.POST('/api/interviews/{interview_id}/finish', path)
+      if (error) throw new Error(formatApiError(error, "we couldn't finish just now. try again."))
+    },
+    onSuccess: () => navigate(shareUrl()),
   })
 
-  async function ask(q: Question) {
-    const mine = ++generation.current
-    setAsked(q)
-    setProblem(null)
-    setPhase('speaking')
-    await speak(q.text, language)
-    if (generation.current !== mine || phaseRef.current !== 'speaking') return
-    try {
-      await listen()
-    } catch {
-      stopWatching()
-      setProblem('The microphone didn’t start. Allow it for this site, then tap Start.')
-      setPhase('ready')
-    }
-  }
-
-  async function listen() {
-    setCaption('')
-    setHeardSpeech(false)
-    setPhase('listening')
-    const backlog: ArrayBuffer[] = []
-    const reuse = unused.current
-    unused.current = null
-    const [rec, slot] = await Promise.all([
-      startRecording((pcm) => (stream.current ? stream.current.send(pcm) : backlog.push(pcm))),
-      reuse ??
-        api
-          .POST('/api/interviews/{interview_id}/answers', { ...path, body: { audio_mime: 'audio/wav' } })
-          .then((r) => r.data!),
-    ])
-    if (phaseRef.current !== 'listening') {
-      // Ended or replayed while the mic was opening.
-      unused.current = slot
-      void rec.stop()
+  async function toggle() {
+    if (!isRecording) {
+      // Inside the tap, so the phone may speak and buzz from now on.
+      buzz(HAPTIC.start)
+      unlockSpeech()
+      setCaption('')
+      setMicError('')
+      setStarting(true)
+      const backlog: ArrayBuffer[] = []
+      let rec: Recording | null = null
+      try {
+        const [started, created] = await Promise.all([
+          startRecording((pcm) => (stream.current ? stream.current.send(pcm) : backlog.push(pcm))),
+          api.POST('/api/interviews/{interview_id}/answers', {
+            ...path,
+            body: { audio_mime: 'audio/wav' },
+          }),
+        ])
+        rec = started
+        if (!created.data) throw new Error(formatApiError(created.error, "we couldn't start recording. try again."))
+        answer.current = created.data
+        stream.current = openAnswerStream(interviewId, created.data.turn_id, setCaption)
+        backlog.splice(0).forEach((pcm) => stream.current!.send(pcm))
+        recording.current = rec
+        setLevel(() => started.level)
+        setPaused(false)
+        setIsRecording(true)
+      } catch (e) {
+        await rec?.stop().catch(() => undefined)
+        setMicError(
+          e instanceof DOMException
+            ? "we couldn't use the microphone. allow it in your browser settings and try again."
+            : e instanceof Error
+              ? e.message
+              : "we couldn't start recording. try again.",
+        )
+      } finally {
+        setStarting(false)
+      }
       return
     }
-    answer.current = slot
-    stream.current = openAnswerStream(interviewId, slot.turn_id, setCaption)
-    backlog.splice(0).forEach((pcm) => stream.current!.send(pcm))
-    recording.current = rec
-    watchForSilence(rec)
-  }
-
-  // They're done when, having spoken, they go quiet for END_SILENCE_MS. The first moments set
-  // the room's noise floor so a fan or a TV doesn't count as talking.
-  function watchForSilence(rec: Recording) {
-    const startedAt = performance.now()
-    let floor = 0
-    let lastLoud = 0
-    watch.current = window.setInterval(() => {
-      const level = rec.loudest()
-      const now = performance.now()
-      if (now - startedAt < CALIBRATE_MS) {
-        floor = Math.max(floor, level)
-        return
-      }
-      const threshold = Math.min(0.05, Math.max(0.012, floor * 2.5))
-      if (level > threshold) {
-        if (!lastLoud) setHeardSpeech(true)
-        lastLoud = now
-      }
-      const quiet = lastLoud > 0 && now - lastLoud > END_SILENCE_MS
-      if (quiet || now - startedAt > MAX_ANSWER_MS) void finishAnswer()
-    }, CHECK_MS)
-  }
-
-  function stopWatching() {
-    if (watch.current != null) window.clearInterval(watch.current)
-    watch.current = null
-  }
-
-  /** Saves the answer and returns what comes next, or null if the queue will deliver it. */
-  async function submit(): Promise<Reply | null> {
-    stopWatching()
-    const rec = recording.current
-    const live = stream.current
-    const slot = answer.current
-    recording.current = stream.current = answer.current = null
-    if (!rec || !live || !slot) return null
-    const wav = await rec.stop()
-    try {
-      return await live.end()
-    } catch {
-      live.abort()
-      await putToSignedUrl(slot.upload_url, wav)
-      await api.POST('/api/interviews/{interview_id}/answers/{turn_id}/complete', {
-        params: { path: { interview_id: interviewId, turn_id: slot.turn_id } },
-      })
-      return null
-    }
-  }
-
-  async function finishAnswer() {
-    if (phaseRef.current !== 'listening') return
+    const wav = await recording.current!.stop()
     buzz(HAPTIC.stop)
-    setPhase('thinking')
-    const reply = await submit()
-    if ((phaseRef.current as Phase) !== 'thinking') return // they ended it meanwhile
-    if (reply?.ended) return wrapUp()
-    if (reply?.question) return ask(reply.question)
-    // Otherwise the uploaded answer goes through the queue; the effect below picks it up.
-  }
-
-  async function wrapUp() {
-    generation.current++
-    stopWatching()
-    setPhase('ended')
-    await speak('Thank you. I will write your story now.', language)
-    if (interview.data) navigate(`/h/${interview.data.heirloom_id}`)
-  }
-
-  // The next question arrived another way (uploaded answer, or another device). Speaking it is
-  // the external effect; the state changes ride along on the next tick.
-  const arrived =
-    phase === 'thinking' && !over && latest && latest.id !== asked?.id
-      ? { id: latest.id, text: latest.text ?? '', number: questions.length }
-      : null
-  const arrivedId = arrived?.id
-  useEffect(() => {
-    if (phase !== 'thinking' || (!over && !arrivedId)) return
-    const next = arrived
-    const t = window.setTimeout(() => void (next ? ask(next) : wrapUp()))
-    return () => window.clearTimeout(t)
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the question, not its object
-  }, [phase, over, arrivedId])
-
-  // Leaving the screen stops the voice and the mic.
-  useEffect(
-    () => () => {
-      stopSpeaking()
-      stopWatching()
-      void recording.current?.stop()
-      stream.current?.abort()
-    },
-    [],
-  )
-
-  function begin() {
-    buzz(HAPTIC.start)
-    unlockSpeech() // inside the tap, so the phone may speak from now on
-    if (current) void ask(current)
-  }
-
-  async function hearAgain() {
-    if (!current) return
-    if (phaseRef.current === 'listening') {
-      stopWatching()
-      setPhase('speaking')
-      unused.current = answer.current
-      answer.current = null
-      stream.current?.abort()
-      stream.current = null
-      await recording.current?.stop()
-      recording.current = null
-    }
-    void ask(current)
-  }
-
-  async function endNow() {
-    const keep = phaseRef.current === 'listening' && heardSpeech
-    generation.current++
-    setPhase('ended')
     stopSpeaking()
-    if (keep) {
-      await submit() // keep what they just said
-    } else {
-      stopWatching()
-      stream.current?.abort()
-      stream.current = null
-      await recording.current?.stop()
-      recording.current = null
-    }
-    await finish.mutateAsync()
-    if (interview.data) navigate(`/h/${interview.data.heirloom_id}`)
+    setIsRecording(false)
+    setPaused(false)
+    submit.mutate(wav)
   }
 
-  const status = {
-    ready: 'Tap Start and the question will be read to you.',
-    speaking: 'Listen…',
-    listening: heardSpeech ? 'Listening. Pause when you’re done.' : 'Your turn. Just talk.',
-    thinking: 'Thinking of the next question…',
-    ended: 'Thank you.',
-  }[phase]
+  async function togglePause() {
+    const rec = recording.current
+    if (!rec) return
+    if (paused) await rec.resume()
+    else await rec.pause()
+    setPaused(!paused)
+  }
+
+  if (interview.isLoading)
+    return (
+      <ScreenBody screen="record-story">
+        <Header title="tell the story" />
+        <Loading />
+      </ScreenBody>
+    )
+  if (!interview.data)
+    return (
+      <ScreenBody screen="record-story">
+        <Header title="tell the story" />
+        <ErrorState message={interview.error?.message} onRetry={() => interview.refetch()} />
+      </ScreenBody>
+    )
+
+  const iv = interview.data
+  const all = turns.data ?? []
+  const question = all.findLast((t) => t.role === 'question')
+  const lastAnswer = all.findLast((t) => t.role === 'answer')
+  const asked = all.filter((t) => t.role === 'question').length
+  const answered = all.some((t) => t.role === 'answer' && t.text)
+  const ended = iv.state === 'wrapping_up' || iv.state === 'done'
+  const thinking = iv.state === 'thinking' || submit.isPending
+  const earlier = all.filter((t) => thinking || ended || t.id !== question?.id)
+  const working = submit.isPending
+    ? 'saving what you said…'
+    : iv.state === 'thinking'
+      ? lastAnswer && !lastAnswer.text
+        ? 'writing down what you said…'
+        : 'thinking of the next question…'
+      : null
+  const cover = heirloom.data?.heirloom.cover_url
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-xl flex-col justify-between gap-8 px-6 py-6">
-      <header className="flex items-center justify-between gap-3">
-        <Link to="/" className="rounded-lg border border-ink/20 bg-white px-3 py-2 text-sm">
-          Home
-        </Link>
-        {current && (
-          <span className="text-sm text-muted">
-            Question {current.number} of {max}
-          </span>
-        )}
-      </header>
+    <ScreenBody screen="record-story" className="gap-4">
+      <Header title="tell the story" back={false} />
 
-      <div className="flex flex-col gap-6">
-        <p className="font-serif text-4xl leading-tight">
-          {over && phase === 'ready' ? 'This interview is finished.' : current?.text}
-        </p>
-        <p aria-live="polite" className="text-lg text-muted">
-          {problem ?? status}
-        </p>
-        {phase === 'listening' && caption && (
-          <p className="font-serif text-xl leading-snug text-muted italic">{caption}</p>
-        )}
-      </div>
-
-      <div className="flex flex-col items-center gap-4">
-        {phase === 'ready' && !over && (
-          <button
-            onClick={begin}
-            disabled={!current}
-            className="size-32 rounded-full bg-ink text-xl text-paper disabled:opacity-40"
-          >
-            Start
-          </button>
-        )}
-        {phase === 'listening' && (
-          <button
-            onClick={() => void finishAnswer()}
-            className="size-32 animate-pulse rounded-full bg-red-700 text-xl text-paper"
-          >
-            I’m done
-          </button>
-        )}
-        {(phase === 'speaking' || phase === 'thinking') && (
-          <div className="flex size-32 items-center justify-center rounded-full bg-ink/10">
-            <span className={`size-6 rounded-full bg-ink ${phase === 'speaking' ? 'animate-ping' : 'animate-pulse'}`} />
+      {ended ? (
+        <div className="flex flex-col gap-4">
+          <Notice title={iv.state === 'done' ? 'your story is ready' : 'writing your story…'}>
+            {iv.state === 'done'
+              ? 'thank you for telling it.'
+              : 'your recording is safe. we are putting your words together — this takes a minute.'}
+          </Notice>
+          <Button onClick={() => navigate(shareUrl())}>review and share →</Button>
+        </div>
+      ) : (
+        <>
+          <div className="flex items-start gap-3">
+            <Thumb src={cover} />
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              {question && asked > 1 && (
+                <p className="font-sans text-[1.05rem] text-muted">
+                  question {asked} of up to {iv.max_questions ?? 10}
+                </p>
+              )}
+              {asked <= 1 && from.asker && from.message && (
+                <p className="font-sans text-[1.1rem] leading-snug break-words text-muted">
+                  {from.asker} asked: “{from.message}”
+                </p>
+              )}
+              <p
+                className={cn(
+                  'font-hand leading-tight break-words',
+                  mode === 'extra_simple' ? 'text-[2.2rem]' : 'text-[1.9rem]',
+                )}
+                aria-live="polite"
+              >
+                {thinking ? working : (question?.text ?? 'tell us about this object')}
+              </p>
+            </div>
           </div>
-        )}
-        {(phase === 'speaking' || phase === 'listening') && (
-          <button onClick={() => void hearAgain()} className="text-lg underline">
-            Hear the question again
-          </button>
-        )}
-        {phase !== 'ended' && !over && (
-          <button onClick={() => void endNow()} className="text-muted underline">
-            End interview
-          </button>
-        )}
-        {over && phase === 'ready' && interview.data && (
-          <Link to={`/h/${interview.data.heirloom_id}`} className="rounded-xl bg-ink px-6 py-4 text-paper">
-            See the story
-          </Link>
-        )}
-      </div>
-    </main>
+
+          {thinking ? (
+            <Loading label="one moment — no need to tap anything." className="py-6" />
+          ) : (
+            <Card className="flex flex-col gap-3">
+              <div className="flex items-center gap-3">
+                <LiveWaveform level={level} active={isRecording && !paused} />
+                <span className="shrink-0 font-sans text-[1.3rem] tabular-nums">{formatMs(elapsed)}</span>
+              </div>
+              {isRecording && (
+                <p className="font-sans text-[1.05rem] text-muted">{paused ? 'paused' : 'recording…'}</p>
+              )}
+              {isRecording && caption && (
+                <p className="font-sans text-[1.2rem] leading-snug break-words text-muted italic">{caption}</p>
+              )}
+            </Card>
+          )}
+
+          <FormError>{micError || submit.error?.message || finish.error?.message}</FormError>
+
+          {!thinking && (
+            <div className="flex items-center gap-4">
+              {isRecording ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={togglePause}
+                    aria-label={paused ? 'resume recording' : 'pause recording'}
+                    className="grid size-16 shrink-0 place-items-center rounded-full border-2 border-ink bg-paper"
+                  >
+                    {paused ? <Play className="ml-0.5 size-7" fill="currentColor" /> : <Pause className="size-7" fill="currentColor" />}
+                  </button>
+                  <Button onClick={toggle}>finish</Button>
+                </>
+              ) : (
+                <Button onClick={toggle} disabled={starting}>
+                  <Mic className="size-7" strokeWidth={2.2} aria-hidden />
+                  {starting ? 'getting ready…' : answered ? 'answer this one' : 'start recording'}
+                </Button>
+              )}
+            </div>
+          )}
+
+          {!isRecording && !thinking && answered && (
+            <Button tone="secondary" onClick={() => finish.mutate()} disabled={finish.isPending}>
+              {finish.isPending ? 'one moment…' : "that's everything →"}
+            </Button>
+          )}
+          {!isRecording && !thinking && !answered && (
+            <p className="text-center font-sans text-[1.1rem] leading-snug text-muted">
+              tap start and just talk. we'll ask a follow-up question after each answer, and your voice is
+              kept with the story.
+            </p>
+          )}
+        </>
+      )}
+
+      {earlier.length > 0 && (
+        <Disclosure summary="transcript" className="mt-2">
+          <ol className="flex flex-col gap-3">
+            {earlier.map((t) => (
+              <li key={t.id} className="break-words">
+                {t.role === 'question' ? (
+                  <p className="text-muted">{t.text}</p>
+                ) : (
+                  <p>{t.text ?? <span className="text-muted italic">writing it down…</span>}</p>
+                )}
+              </li>
+            ))}
+          </ol>
+        </Disclosure>
+      )}
+      {!ended && (
+        <div className="mt-auto pt-4 text-center">
+          <TextButton onClick={() => navigate(heirloomId ? `/h/${heirloomId}` : '/')}>continue later</TextButton>
+        </div>
+      )}
+    </ScreenBody>
   )
+}
+
+/** Time spent recording this answer, not counting pauses. */
+function useElapsed(recording: boolean, paused: boolean) {
+  const [ms, setMs] = useState(0)
+  const total = useRef(0)
+  useEffect(() => {
+    if (!recording) total.current = 0
+  }, [recording])
+  useEffect(() => {
+    if (!recording || paused) return
+    const start = performance.now()
+    const base = total.current
+    const tick = () => setMs(base + performance.now() - start)
+    const first = setTimeout(tick, 0)
+    const id = setInterval(tick, 250)
+    return () => {
+      total.current = base + performance.now() - start
+      clearTimeout(first)
+      clearInterval(id)
+    }
+  }, [recording, paused])
+  return ms
 }

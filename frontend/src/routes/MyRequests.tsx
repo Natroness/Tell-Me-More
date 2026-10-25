@@ -1,66 +1,56 @@
-import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
-import { Link } from 'react-router'
-import { BottomNav } from '@/components/ui/Nav'
-import { ScreenHeader } from '@/components/ui/Screen'
-import { api } from '@/lib/api'
+import { Button, EmptyState, ErrorState, Header, Loading, ScreenBody, Tabs } from '@/components/ui/chrome'
+import { useFamily } from '@/lib/family'
+import { useScreenTitle } from '@/lib/useScreenTitle'
+import { useRequestBoard } from '@/routes/capture/data'
+import { RequestCard } from '@/routes/capture/shared'
 
-const STATUS_STYLE: Record<string, string> = {
-  pending: 'bg-yellow-100 text-yellow-900',
-  in_progress: 'bg-blue-100 text-blue-900',
-  completed: 'bg-green-100 text-green-900',
-  declined: 'bg-red-100 text-red-900',
-  cancelled: 'bg-gray-200 text-gray-700',
-}
-
-/** Brief §3: My requests — pending + completed; decline → choose another. */
+/** Requests you sent and requests waiting for you, in the hub's card style. */
 export function MyRequests() {
+  useScreenTitle('my requests')
+  const { data: family } = useFamily()
   const [scope, setScope] = useState<'mine' | 'incoming'>('mine')
-  const list = useQuery({
-    queryKey: ['requests', scope],
-    queryFn: async () =>
-      (await api.GET('/api/requests', {
-        params: { query: { scope } },
-      })).data ?? [],
-  })
+  const { sent, incoming, people, heirloomOf } = useRequestBoard(family?.id)
+  const list = scope === 'mine' ? sent : incoming
+  const waiting = (incoming.data ?? []).filter((r) => r.status === 'pending').length
 
   return (
-    <main className="mx-auto flex max-w-xl flex-col gap-4 px-4 py-8">
-      <ScreenHeader title="My requests" />
-      <div className="flex gap-2">
-        {(['mine', 'incoming'] as const).map((s) => (
-          <button
-            key={s}
-            onClick={() => setScope(s)}
-            className={`rounded-lg px-4 py-2 ${scope === s ? 'bg-ink text-paper' : 'border border-ink/20 bg-white'}`}
-          >
-            {s === 'mine' ? 'Sent' : 'For me'}
-          </button>
-        ))}
-      </div>
-      {(list.data ?? []).length === 0 && (
-        <p className="text-muted">
-          {list.isLoading ? 'Loading…' : 'No requests here yet.'}
-        </p>
-      )}
-      {(list.data ?? []).map((r) => (
-        <Link
-          key={r.id}
-          to={`/requests/${r.id}`}
-          className="rounded-xl bg-white p-4 shadow"
+    <ScreenBody screen="my-requests">
+      <Header title="my requests" back="/stories" />
+      <Tabs
+        tabs={[
+          { id: 'mine', label: 'sent' },
+          { id: 'incoming', label: 'for me', count: waiting },
+        ]}
+        value={scope}
+        onChange={setScope}
+      />
+      {!family || list.isLoading ? (
+        <Loading label="loading requests…" />
+      ) : list.isError ? (
+        <ErrorState message={list.error.message} onRetry={() => list.refetch()} />
+      ) : (list.data ?? []).length === 0 ? (
+        <EmptyState
+          title={scope === 'mine' ? "you haven't asked anyone yet" : 'nothing waiting for you'}
+          action={scope === 'mine' ? <Button to="/capture">capture an object</Button> : undefined}
         >
-          <p className="font-medium">{r.message || 'Story request'}</p>
-          <p className="mt-1 flex items-center gap-2 text-sm text-muted">
-            <span className={`rounded-full px-2 py-0.5 ${STATUS_STYLE[r.status] ?? ''}`}>
-              {r.status.replace('_', ' ')}
-            </span>
-          </p>
-          {scope === 'mine' && r.status === 'declined' && (
-            <p className="mt-1 text-sm text-muted">They couldn&apos;t help — choose another relative.</p>
-          )}
-        </Link>
-      ))}
-      <BottomNav />
-    </main>
+          {scope === 'mine'
+            ? 'photograph an object and ask a relative to tell its story.'
+            : 'when someone asks you about an object, it shows up here.'}
+        </EmptyState>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {(list.data ?? []).map((r) => (
+            <RequestCard
+              key={r.id}
+              r={r}
+              side={scope === 'mine' ? 'sent' : 'incoming'}
+              heirloom={heirloomOf(r.heirloom_id)}
+              name={people.nameOf(scope === 'mine' ? r.storyteller_id : r.listener_id)}
+            />
+          ))}
+        </div>
+      )}
+    </ScreenBody>
   )
 }

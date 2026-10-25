@@ -1,33 +1,64 @@
 import { useQuery } from '@tanstack/react-query'
+import { Check } from 'lucide-react'
 import { useParams } from 'react-router'
-import { BigButton, ScreenHeader } from '@/components/ui/Screen'
+import { Avatar, Button, Card, Chip, ErrorState, Header, Loading, ScreenBody } from '@/components/ui/chrome'
 import { api } from '@/lib/api'
+import { formatApiError } from '@/lib/apiError'
+import { useScreenTitle } from '@/lib/useScreenTitle'
+import { statusWord } from '@/routes/capture/data'
+import { ObjectThumb } from '@/routes/capture/shared'
 
-/** Brief §3F: only after save; Back home / View request; stays pending. */
+/** Screen 12: shown only once the saved request loads back from the server. */
 export function RequestConfirm() {
+  useScreenTitle('story requested')
   const { requestId } = useParams() as { requestId: string }
   const detail = useQuery({
     queryKey: ['request', requestId],
-    queryFn: async () =>
-      (await api.GET('/api/requests/{request_id}', {
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/requests/{request_id}', {
         params: { path: { request_id: requestId } },
-      })).data,
+      })
+      if (error || !data) throw new Error(formatApiError(error, 'we could not find this request.'))
+      return data
+    },
   })
-  const name = detail.data?.storyteller_name ?? 'them'
+  const r = detail.data
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-xl flex-col justify-center gap-4 px-4">
-      <ScreenHeader title="Sent" hideBack />
-      <h1 className="font-serif text-3xl">Story requested</h1>
-      <p className="text-lg text-muted">
-        We&apos;ve asked {name} about this object. We&apos;ll let you know when the story is
-        ready.
-      </p>
-      <p className="text-sm text-muted">The request stays pending until they respond.</p>
-      <BigButton to="/" primary>
-        Back to home
-      </BigButton>
-      <BigButton to={`/requests/${requestId}`}>View request</BigButton>
-    </main>
+    <ScreenBody screen="request-status">
+      <Header title="request status" back={false} />
+      {detail.isLoading ? (
+        <Loading />
+      ) : !r ? (
+        <ErrorState message={detail.error?.message} onRetry={() => detail.refetch()} />
+      ) : (
+        <>
+          <div className="flex flex-col items-center gap-3 py-4 text-center">
+            <span className="grid size-28 place-items-center rounded-full border-[3px] border-ink bg-sun text-black">
+              <Check className="size-16" strokeWidth={3} aria-hidden />
+            </span>
+            <p className="font-hand text-[2.2rem] leading-tight">story requested</p>
+          </div>
+          <Card className="flex items-center gap-3">
+            <ObjectThumb src={r.heirloom_cover_url ?? r.capture_url} className="size-16" />
+            <Avatar name={r.storyteller_name} />
+            <div className="flex min-w-0 flex-1 flex-col items-start gap-1">
+              <span className="font-sans text-[1.25rem] leading-tight break-words">{r.storyteller_name ?? 'your relative'}</span>
+              <Chip>{statusWord(r.status)}</Chip>
+            </div>
+          </Card>
+          <p className="mt-4 text-center font-sans text-[1.2rem] leading-snug break-words">
+            we asked {r.storyteller_name ?? 'them'} about {r.heirloom_title ?? 'this object'}. we'll let you know
+            when they tell it.
+          </p>
+          <div className="mt-auto flex flex-col gap-3 pt-6">
+            <Button to={`/requests/${r.id}`}>view request</Button>
+            <Button tone="secondary" to="/">
+              home
+            </Button>
+          </div>
+        </>
+      )}
+    </ScreenBody>
   )
 }
