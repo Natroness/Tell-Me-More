@@ -35,13 +35,17 @@ def _decode(token: str) -> dict:
     return jwt.decode(token, key.key, algorithms=["ES256", "RS256"], audience="authenticated")
 
 
+def user_from_token(token: str) -> User:
+    """Raises jwt.PyJWTError. Blocking on the first JWKS fetch, so call it off the event loop."""
+    return User(id=UUID(_decode(token)["sub"]))
+
+
 # Sync on purpose: FastAPI runs it in a threadpool, so the JWKS fetch never blocks the loop.
 def current_user(creds: Annotated[HTTPAuthorizationCredentials, Depends(_bearer)]) -> User:
     try:
-        claims = _decode(creds.credentials)
+        return user_from_token(creds.credentials)
     except jwt.PyJWTError as e:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid token") from e
-    return User(id=UUID(claims["sub"]))
 
 
 CurrentUser = Annotated[User, Depends(current_user)]

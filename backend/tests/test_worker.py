@@ -20,7 +20,7 @@ async def wait_for_status(conn, kind, subject_id, statuses):
 async def test_worker_runs_queued_jobs_and_records_failures(conn, fakes, seed):
     fakes.llm.responses[ObjectReading] = READING
     await enqueue(conn, "analyze_object", seed.heirloom_id, seed.family_id)
-    await enqueue(conn, "compose_story", seed.heirloom_id, seed.family_id)  # still a stub
+    await enqueue(conn, "compose_story", seed.heirloom_id, seed.family_id)  # no memories yet
 
     stop = asyncio.Event()
     worker = asyncio.create_task(run_worker(stop, concurrency=4))
@@ -37,5 +37,5 @@ async def test_worker_runs_queued_jobs_and_records_failures(conn, fakes, seed):
         "select attempts, error from job where kind = 'compose_story' and subject_id = $1",
         seed.heirloom_id,
     )
-    assert failed["attempts"] == 3 and "NotImplementedError" in failed["error"]
+    assert failed["attempts"] == 3 and "LookupError" in failed["error"]
     assert await conn.fetchval("select title from heirloom where id = $1", seed.heirloom_id)

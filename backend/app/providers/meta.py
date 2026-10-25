@@ -1,14 +1,26 @@
 """Meta Model API adapters. Chat, vision and images use the OpenAI-compatible API; speech uses
 Meta's own ASR endpoint. All verified live by scripts/check_services.py."""
 
+import asyncio
 import base64
 import json
+import re
+from collections.abc import AsyncIterator, Awaitable, Callable
 
 import httpx
+import websockets
 from openai import AsyncOpenAI
 
 from app.config import Settings
-from app.providers.base import Blob, Msg, T, Transcript, TranscriptSegment
+from app.providers.base import (
+    Blob,
+    Effort,
+    Msg,
+    StreamedTranscript,
+    T,
+    Transcript,
+    TranscriptSegment,
+)
 
 
 def _client(s: Settings) -> AsyncOpenAI:
@@ -27,13 +39,16 @@ class MetaLLM:
         messages: list[Msg],
         schema: type[T],
         images: list[Blob] | None = None,
+        effort: Effort | None = None,
     ) -> T:
         msgs: list[Msg] = [{"role": "system", "content": system}, *messages]
         if images:
             msgs.append({"role": "user", "content": [_image_part(i) for i in images]})
+        extra = {"reasoning_effort": effort} if effort else {}
         resp = await self._client.chat.completions.create(
             model=self._model,
             messages=msgs,
+            **extra,
             response_format={
                 "type": "json_schema",
                 "json_schema": {"name": schema.__name__, "schema": schema.model_json_schema()},
@@ -75,8 +90,12 @@ class MetaASR:
         self._url = s.meta_asr_url
         self._model = s.meta_asr_model
 
-    async def transcribe(self, *, audio: Blob, language: str | None = None) -> Transcript:
+    async def transcribe(
+        self, *, audio: Blob, language: str | None = None, keywords: list[str] | None = None
+    ) -> Transcript:
         request: dict = {"mode": "ENDPOINTING", "model": self._model, "audioEncoding": "WAV"}
+        if keywords:
+            request["keywords"] = keywords
         if language in _LANGUAGE_NAMES:
             request["languageBias"] = [_LANGUAGE_NAMES[language]]
         async with httpx.AsyncClient(timeout=120) as http:
@@ -100,6 +119,92 @@ class MetaASR:
         ]
         text = body.get("transcript") or " ".join(s.text for s in segments)
         return Transcript(text=text.strip(), language=language, segments=segments)
+
+
+class StreamError(RuntimeError):
+    """The realtime session was rejected or dropped."""
+
+
+_PCM_BYTES_PER_MS = 32  # 16 kHz, 16-bit mono
+_DOUBLED_STOP = re.compile(r"\.{2,}(?=\s|$)")
+
+
+class MetaStreamingASR:
+    """Realtime transcription over Meta's WebSocket (wss://api.meta.ai/v1/asr/realtime), per the
+    cookbook. PUSH_TO_TALK: we end the turn, and the final transcript follows in ~0.15 s."""
+
+    def __init__(self, s: Settings) -> None:
+        self._key = s.meta_api_key
+        self._url = s.meta_asr_stream_url
+        self._model = s.meta_asr_model
+
+    async def stream(
+        self,
+        audio: AsyncIterator[bytes],
+        *,
+        language: str | None = None,
+        keywords: list[str] | None = None,
+        on_partial: Callable[[str], Awaitable[None]] | None = None,
+    ) -> StreamedTranscript:
+        handshake: dict = {
+            "mode": "PUSH_TO_TALK",
+            "authorization": {"accessToken": self._key},
+            "audioEncoding": "PCM_16KHZ",
+            "model": self._model,
+            "partialMode": "CUMULATIVE",
+            "emitAudioProgress": False,
+        }
+        if keywords:
+            handshake["keywords"] = keywords
+        if language in _LANGUAGE_NAMES:
+            handshake["languageBias"] = [_LANGUAGE_NAMES[language]]
+
+        sent = 0
+        finals: list[str] = []
+        progress: list[tuple[str, int]] = []
+        async with websockets.connect(self._url, max_size=None, open_timeout=10) as ws:
+            await ws.send(json.dumps(handshake))
+            ack = json.loads(await ws.recv())
+            if ack.get("type") == "error":
+                raise StreamError(ack.get("message", "handshake rejected"))
+
+            async def upload() -> None:
+                nonlocal sent
+                async for chunk in audio:
+                    await ws.send(chunk)
+                    sent += len(chunk)
+                await ws.send(json.dumps({"type": "endStream"}))
+
+            uploader = asyncio.create_task(upload())
+            try:
+                async for message in ws:
+                    if isinstance(message, bytes):
+                        continue
+                    event = json.loads(message)
+                    if event.get("type") == "error":
+                        raise StreamError(event.get("message", "transcription failed"))
+                    if event.get("type") != "transcript":
+                        continue
+                    # Partials are cumulative within an utterance; a final closes it.
+                    text = " ".join([*finals, event.get("transcript", "")]).strip()
+                    if event.get("final"):
+                        finals.append(event.get("transcript", ""))
+                    progress.append((text, event.get("audioProcessedMs") or 0))
+                    if on_partial:
+                        await on_partial(text)
+            except websockets.ConnectionClosed as e:
+                if e.code != 1000:
+                    raise StreamError(f"session closed [{e.code}] {e.reason}") from e
+            finally:
+                uploader.cancel()
+                upload_error = (await asyncio.gather(uploader, return_exceptions=True))[0]
+            if isinstance(upload_error, Exception):
+                raise StreamError(f"sending audio failed: {upload_error!r}") from upload_error
+
+        text = _DOUBLED_STOP.sub(".", " ".join(f.strip() for f in finals if f.strip()))
+        return StreamedTranscript(
+            text=text, progress=progress, duration_ms=sent // _PCM_BYTES_PER_MS
+        )
 
 
 class MetaImage:

@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     meta_chat_model: str = "muse-spark-1.1"
     meta_asr_model: str = "muse-voice-transcribe-1.0"
     meta_asr_url: str = "https://api.meta.ai/v1/asr/transcribe"
+    meta_asr_stream_url: str = "wss://api.meta.ai/v1/asr/realtime"
     meta_image_model: str = "muse-image"
 
     gemini_api_key: str = ""
@@ -32,6 +33,7 @@ class Settings(BaseSettings):
 
     worker_enabled: bool = True
     worker_concurrency: int = 8
+    db_pool_size: int = 5
 
 
 @lru_cache

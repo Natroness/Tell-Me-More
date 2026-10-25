@@ -21,6 +21,7 @@ from pydantic import BaseModel
 
 from app import storage
 from app.config import get_settings
+from app.jobs.stages.common import sniff_image_mime
 from app.providers.base import Blob
 from app.providers.gemini import GeminiLLM
 from app.providers.meta import MetaASR, MetaImage, MetaLLM
@@ -215,7 +216,7 @@ async def _vision(llm: Any, label: str) -> str:
         system="Describe only what is visible. JSON only.",
         messages=[{"role": "user", "content": "What object is this? List 3 visible details."}],
         schema=Sight,
-        images=[Blob(data=shared["image"], mime=_sniff(shared["image"]))],
+        images=[Blob(data=shared["image"], mime=sniff_image_mime(shared["image"]))],
     )
     return f"{label}: {out.object!r} / {out.details[:3]}"
 
@@ -230,11 +231,11 @@ async def gemini_vision() -> str:
     return await _vision(GeminiLLM(S), S.gemini_model)
 
 
-def _spoken_wav() -> bytes:
+def _spoken_wav(text: str = SPOKEN) -> bytes:
     """Real speech via macOS `say`, converted to 16 kHz mono WAV like the phone records."""
     with tempfile.TemporaryDirectory() as d:
         aiff, wav = Path(d) / "s.aiff", Path(d) / "s.wav"
-        subprocess.run(["say", "-o", str(aiff), SPOKEN], check=True)
+        subprocess.run(["say", "-o", str(aiff), text], check=True)
         subprocess.run(
             ["afconvert", "-f", "WAVE", "-d", "LEI16@16000", "-c", "1", str(aiff), str(wav)],
             check=True,
@@ -256,7 +257,7 @@ async def serpapi_lens() -> str:
     if "image" not in shared:
         raise AssertionError("skipped: no test image (image generation failed)")
     path = f"_healthcheck/{uuid4()}.png"
-    await storage.upload("photos", path, shared["image"], _sniff(shared["image"]))
+    await storage.upload("photos", path, shared["image"], sniff_image_mime(shared["image"]))
     try:
         url = await storage.signed_download_url("photos", path, expires_in=300)
         matches = await SerpApi(S, cache=False).lens(url)
@@ -264,16 +265,6 @@ async def serpapi_lens() -> str:
         await _delete("photos", [path])
     assert matches, "no visual matches"
     return f"{len(matches)} matches, top: {[m.title for m in matches[:3]]}"
-
-
-def _sniff(data: bytes) -> str:
-    if data.startswith(b"\x89PNG"):
-        return "image/png"
-    if data.startswith(b"\xff\xd8"):
-        return "image/jpeg"
-    if data[8:12] == b"WEBP":
-        return "image/webp"
-    return "application/octet-stream"
 
 
 async def main() -> None:

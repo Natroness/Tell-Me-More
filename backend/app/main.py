@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from app import db
 from app.config import get_settings
 from app.jobs.runner import run_worker
-from app.routers import families, heirlooms, interviews, memories, stories
+from app.routers import answer_stream, families, heirlooms, interviews, memories, stories
 
 log = logging.getLogger("lorebook")
 
@@ -19,7 +19,7 @@ async def lifespan(_: FastAPI):
         log.warning("DATABASE_URL not set: API routes that touch the DB will fail, worker is off")
         yield
         return
-    await db.open_pool(s.database_url)
+    await db.open_pool(s.database_url, s.db_pool_size)
     stop = asyncio.Event()
     worker = (
         asyncio.create_task(run_worker(stop, s.worker_concurrency)) if s.worker_enabled else None
@@ -35,7 +35,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="Lorebook API", lifespan=lifespan)
 
-for r in (families, heirlooms, interviews, memories, stories):
+for r in (families, heirlooms, interviews, answer_stream, memories, stories):
     app.include_router(r.router)
 
 

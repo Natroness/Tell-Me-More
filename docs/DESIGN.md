@@ -190,7 +190,13 @@ lorebook/
 | SerpApi Google Lens | Works on a Supabase signed URL. About 60 matches for a pocket watch. | 22 s |
 | Supabase Storage | Works with the `sb_secret_` key on `apikey`. Signed download URLs need no key. | 5 s |
 
-Interview loop budget: transcription (3 s) plus next question (3 to 6 s) is about 6 to 9 s, over the 4 s target in §5.1. The UI's "Listening to what you said…" state has to carry that gap.
+Muse Spark is a reasoning model, and `reasoning_effort` defaults to `medium` (accepted: `minimal`, `low`, `medium`, `high`, `xhigh`, `max`; not `none`). At the default, `next_question` spent about 2,100 reasoning tokens to write about 120 visible ones, which took 15 s. At `minimal` it takes about 3 s, and the questions are just as good. `LLM.json(effort=...)` sets it per call. The live interview uses `minimal`, and the post-interview stages keep the default.
+
+Muse Voice Transcribe takes a `keywords` list in the request. `transcribe_turn` passes the family's names, so "Hari" is no longer heard as "Harry".
+
+Interview loop, measured end to end (`scripts/e2e_pipeline.py`, 2026-10-24): about 9 s from answer upload to the next question, down from 21 s. That breaks down as `transcribe_turn` 4 to 5 s (ASR call plus a storage download), `next_question` about 3.5 s, and worker polling about 0.5 s. Streaming ASR then removed the transcription wait: the transcript is saved about 0.8 s after Done (0.15 s ASR final plus the database writes). The next question is ready 3.9 to 6.3 s after Done, almost all of it `next_question` at minimal effort.
+
+Supabase's session pooler caps clients per project (15 here). The asyncpg pool opens connections on demand and holds at most `DB_POOL_SIZE` (default 5), so the API, the worker and a dev script fit together.
 
 Network gotcha: some venue and campus networks block outbound ports 5432 and 6543, so Postgres can't connect even with correct credentials. Use a phone hotspot for development, and the Vultr box for the demo.
 
@@ -494,8 +500,8 @@ Policy, written into the prompt: prefer a `follow_up` when the last answer named
 ### 5.3 Audio path
 
 - Client opens an `AudioContext` at 16 kHz (the browser resamples the mic) and an `AudioWorklet` collects mono frames, encoded to 16-bit PCM WAV on stop, which is what Muse Voice Transcribe reportedly wants. See `frontend/src/lib/recorder.ts`.
-- **Batch mode (default, simplest):** on stop, upload the WAV to Storage, enqueue `transcribe_turn`. Answers are short (under 2 minutes), so latency is acceptable.
-- **Realtime mode (if the API is WebSocket-only):** the server opens the ASR socket and the client streams PCM chunks through it. We show live captions as a bonus. The `transcribe_turn` contract stays the same; only the adapter changes.
+- **Streaming (default):** while the narrator speaks, the phone streams 16-bit PCM over a WebSocket to `/api/interviews/{id}/answers/{turn}/stream` (`routers/answer_stream.py`). The backend relays it to Meta's realtime ASR (`wss://api.meta.ai/v1/asr/realtime`, `PUSH_TO_TALK`, family names as `keywords`) and sends partials back as live captions. On Done, the final transcript arrives in about 0.15 s. We save the turn text and segments, set `thinking`, enqueue `next_question`, reply `done`, and only then upload the WAV for story playback. Segment times come from the partials: the first partial that completes sentence k carries `audioProcessedMs`, which marks where sentence k ended (`segments.timed_segments`).
+- **Batch (fallback):** if the socket fails, errors, or doesn't answer within 8 s, the phone uploads its own WAV and calls `/complete`, which runs `transcribe_turn`. Both paths end in `transcribe_turn.save_answer`.
 - The 16 kHz WAV is both the ASR input and the playback file. At about 32 KB per second, a 2-minute answer is under 4 MB, so one file is simpler than two.
 - If ASR returns no timestamps, fall back to one segment per sentence with timestamps estimated from character offsets. Tap-to-play still lands within a couple of seconds.
 

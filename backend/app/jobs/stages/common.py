@@ -12,3 +12,13 @@ async def cover_photo(conn: asyncpg.Connection, heirloom_id: UUID) -> asyncpg.Re
     if row is None:
         raise LookupError(f"heirloom {heirloom_id} has no cover photo")
     return row
+
+
+def sniff_image_mime(data: bytes) -> str:
+    if data.startswith(b"\x89PNG"):
+        return "image/png"
+    if data.startswith(b"\xff\xd8"):
+        return "image/jpeg"
+    if data[8:12] == b"WEBP":
+        return "image/webp"
+    return "application/octet-stream"

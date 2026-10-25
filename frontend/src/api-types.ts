@@ -628,15 +628,23 @@ export interface components {
             /** Text */
             text: string | null;
         };
-        /** MemorySource */
+        /**
+         * MemorySource
+         * @description Said aloud in an interview (segment_ids) or written by a relative (memory_note_id).
+         */
         MemorySource: {
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
             kind: "memory";
-            /** Segment Ids */
-            segment_ids: string[];
+            /**
+             * Segment Ids
+             * @default []
+             */
+            segment_ids?: string[];
+            /** Memory Note Id */
+            memory_note_id?: string | null;
             /**
              * Narrator Id
              * Format: uuid

@@ -2,7 +2,7 @@ from google import genai
 from google.genai import types
 
 from app.config import Settings
-from app.providers.base import Blob, Msg, T
+from app.providers.base import Blob, Effort, Msg, T
 
 
 class GeminiLLM:
@@ -17,6 +17,7 @@ class GeminiLLM:
         messages: list[Msg],
         schema: type[T],
         images: list[Blob] | None = None,
+        effort: Effort | None = None,
     ) -> T:
         contents = [
             types.Content(
@@ -35,6 +36,9 @@ class GeminiLLM:
                 system_instruction=system,
                 response_mime_type="application/json",
                 response_json_schema=schema.model_json_schema(),
+                thinking_config=types.ThinkingConfig(thinking_level=effort.upper())
+                if effort
+                else None,
             ),
         )
         return schema.model_validate_json(resp.text or "")

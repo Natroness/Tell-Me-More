@@ -1,8 +1,12 @@
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any, Literal, Protocol, TypeVar
 
 from pydantic import BaseModel
 
 T = TypeVar("T", bound=BaseModel)
+
+# How long a reasoning model may think. Lower is faster; None keeps the provider default.
+Effort = Literal["minimal", "low", "medium", "high"]
 
 # OpenAI chat message shape: {"role": "user" | "assistant", "content": str}
 Msg = dict[str, Any]
@@ -27,6 +31,15 @@ class Transcript(BaseModel):
     segments: list[TranscriptSegment]
 
 
+class StreamedTranscript(BaseModel):
+    """A live session's final text, plus each cumulative partial with how much audio it covered,
+    which is what app.segments.timed_segments turns into sentence timings."""
+
+    text: str
+    progress: list[tuple[str, int]]
+    duration_ms: int
+
+
 class LensMatch(BaseModel):
     title: str
     link: str
@@ -49,11 +62,28 @@ class LLM(Protocol):
         messages: list[Msg],
         schema: type[T],
         images: list[Blob] | None = None,
+        effort: Effort | None = None,
     ) -> T: ...
 
 
 class ASR(Protocol):
-    async def transcribe(self, *, audio: Blob, language: str | None = None) -> Transcript: ...
+    # keywords bias recognition toward words it would mishear, like family names.
+    async def transcribe(
+        self, *, audio: Blob, language: str | None = None, keywords: list[str] | None = None
+    ) -> Transcript: ...
+
+
+class StreamingASR(Protocol):
+    # Streams raw 16 kHz mono 16-bit PCM while the person speaks. on_partial gets the growing
+    # transcript; the return value arrives right after `audio` ends. Raises if the session drops.
+    async def stream(
+        self,
+        audio: AsyncIterator[bytes],
+        *,
+        language: str | None = None,
+        keywords: list[str] | None = None,
+        on_partial: Callable[[str], Awaitable[None]] | None = None,
+    ) -> StreamedTranscript: ...
 
 
 class ImageGen(Protocol):

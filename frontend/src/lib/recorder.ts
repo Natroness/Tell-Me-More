@@ -1,12 +1,13 @@
 /**
  * Records the mic as 16 kHz mono 16-bit WAV, which is what Muse Voice Transcribe expects
- * (DESIGN.md §5.3). The same file is used for playback on the story page.
+ * (DESIGN.md §5.3). `onPcm` gets the same audio as raw 16-bit PCM while recording, for streaming.
+ * The WAV is the fallback upload if streaming fails.
  */
 const SAMPLE_RATE = 16_000
 
 export type Recording = { stop: () => Promise<Blob>; level: () => number }
 
-export async function startRecording(): Promise<Recording> {
+export async function startRecording(onPcm?: (pcm: ArrayBuffer) => void): Promise<Recording> {
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
   })
@@ -18,6 +19,7 @@ export async function startRecording(): Promise<Recording> {
   let lastLevel = 0
   node.port.onmessage = (e: MessageEvent<Float32Array>) => {
     chunks.push(e.data)
+    onPcm?.(toInt16(e.data).buffer as ArrayBuffer)
     lastLevel = Math.sqrt(e.data.reduce((s, v) => s + v * v, 0) / e.data.length)
   }
   source.connect(node)
@@ -32,6 +34,15 @@ export async function startRecording(): Promise<Recording> {
       return encodeWav(chunks, SAMPLE_RATE)
     },
   }
+}
+
+function toInt16(samples: Float32Array): Int16Array {
+  const out = new Int16Array(samples.length)
+  samples.forEach((v, i) => {
+    const clamped = Math.max(-1, Math.min(1, v))
+    out[i] = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff
+  })
+  return out
 }
 
 function encodeWav(chunks: Float32Array[], sampleRate: number): Blob {
@@ -54,9 +65,8 @@ function encodeWav(chunks: Float32Array[], sampleRate: number): Blob {
   view.setUint32(40, samples * 2, true)
   let offset = 44
   for (const chunk of chunks) {
-    for (const v of chunk) {
-      const clamped = Math.max(-1, Math.min(1, v))
-      view.setInt16(offset, clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff, true)
+    for (const v of toInt16(chunk)) {
+      view.setInt16(offset, v, true)
       offset += 2
     }
   }

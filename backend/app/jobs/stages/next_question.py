@@ -14,6 +14,9 @@ from app.prompts import prompt
 
 MAX_ANSWERS = 8
 HISTORY_TURNS = 8  # last 4 question/answer pairs keep the prompt small and the reply fast
+# Someone is waiting. At the default effort Muse reasons ~2k tokens (~15s); minimal is ~3s with
+# questions just as good (measured on a real interview).
+EFFORT = "minimal"
 
 
 async def run(interview_id: UUID) -> None:
@@ -58,6 +61,7 @@ async def run(interview_id: UUID) -> None:
         ),
         messages=[{"role": "user", "content": context}],
         schema=NextQuestion,
+        effort=EFFORT,
     )
 
     async with pool().acquire() as conn, conn.transaction():

@@ -1,10 +1,10 @@
 """Domain shapes shared by the pipeline, the API, and the frontend (via OpenAPI). DESIGN.md §4."""
 
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, model_validator
 
 
 class BBox(BaseModel):
@@ -20,9 +20,18 @@ class BBox(BaseModel):
 
 
 class MemorySource(BaseModel):
+    """Said aloud in an interview (segment_ids) or written by a relative (memory_note_id)."""
+
     kind: Literal["memory"]
-    segment_ids: list[UUID] = Field(min_length=1)
+    segment_ids: list[UUID] = []
+    memory_note_id: UUID | None = None
     narrator_id: UUID
+
+    @model_validator(mode="after")
+    def _one_origin(self) -> Self:
+        if bool(self.segment_ids) == (self.memory_note_id is not None):
+            raise ValueError("a memory cites either segments or one memory note")
+        return self
 
 
 class ObservationSource(BaseModel):

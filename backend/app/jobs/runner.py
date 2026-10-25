@@ -35,7 +35,7 @@ HANDLERS: dict[JobKind, Callable[[UUID], Awaitable[None]]] = {
 }
 
 MAX_ATTEMPTS = 3
-POLL_SECONDS = 1.0
+POLL_SECONDS = 0.25  # each pipeline hop waits up to this long; interviews have two per answer
 
 
 async def _claim(conn: asyncpg.Connection) -> asyncpg.Record | None:

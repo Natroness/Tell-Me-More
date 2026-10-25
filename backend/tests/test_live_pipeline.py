@@ -4,9 +4,9 @@ from uuid import uuid4
 
 from app.jobs.stages import analyze_object, lens_lookup, next_question, transcribe_turn
 from app.jobs.stages.lens_lookup import LensFinding, LensFindings
-from app.jobs.stages.transcribe_turn import estimate_segments, sentence_segments
 from app.models import NextQuestion, ObjectReading, ObservedDetail
 from app.providers.base import LensMatch, Transcript, TranscriptSegment
+from app.segments import estimate_segments, sentence_segments
 from tests.conftest import make_wav
 
 READING = ObjectReading(
@@ -155,8 +155,14 @@ async def test_transcribe_turn_saves_timed_segments_and_queues_the_next_question
         ],
     )
 
+    await conn.execute(
+        "insert into person (family_id, display_name, full_name) values ($1, 'Hari', 'Hari KC')",
+        seed.family_id,
+    )
+
     await transcribe_turn.run(turn_id)
 
+    assert sorted(fakes.asr.keywords) == ["Hari", "Hari KC", "Nani"], "family names bias the ASR"
     assert await conn.fetchval("select text from turn where id = $1", turn_id) == (
         "My mother gave it to me. It was 1961."
     )
@@ -228,6 +234,7 @@ async def test_next_question_asks_a_follow_up_and_tracks_coverage(conn, fakes, s
 
     await next_question.run(interview_id)
 
+    assert fakes.llm.calls[-1]["effort"] == "minimal", "the narrator is waiting: think briefly"
     turn = await conn.fetchrow(
         "select idx, role, text, target_slot from turn where interview_id = $1 "
         "order by idx desc limit 1",

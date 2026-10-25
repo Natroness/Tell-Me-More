@@ -9,7 +9,7 @@ import pytest
 
 from app import db, providers, storage
 from app.providers import Providers
-from app.providers.base import Blob, LensMatch, Transcript
+from app.providers.base import Blob, LensMatch, SerpResult, StreamedTranscript, Transcript
 
 if not os.environ.get("TEST_DATABASE_URL"):
     pytest.skip("run via tests/run_with_db.sh (needs TEST_DATABASE_URL)", allow_module_level=True)
@@ -17,52 +17,109 @@ if not os.environ.get("TEST_DATABASE_URL"):
 
 @dataclass
 class FakeLLM:
-    """Returns the queued response for whichever schema a stage asks for."""
+    """Returns the queued response for whichever schema a stage asks for. A list is served in
+    order, one item per call."""
 
     responses: dict[type, Any] = field(default_factory=dict)
     calls: list[dict] = field(default_factory=list)
 
-    async def json(self, *, system, messages, schema, images=None):
-        self.calls.append({"system": system, "messages": messages, "images": images})
-        return self.responses[schema]
+    async def json(self, *, system, messages, schema, images=None, effort=None):
+        self.calls.append(
+            {"system": system, "messages": list(messages), "images": images, "effort": effort}
+        )
+        response = self.responses[schema]
+        return response.pop(0) if isinstance(response, list) else response
 
 
 @dataclass
 class FakeASR:
     transcript: Transcript | None = None
     calls: list[Blob] = field(default_factory=list)
+    keywords: list[str] | None = None
 
-    async def transcribe(self, *, audio, language=None):
+    async def transcribe(self, *, audio, language=None, keywords=None):
         self.calls.append(audio)
+        self.keywords = keywords
         return self.transcript
 
 
 @dataclass
 class FakeSearch:
     matches: list[LensMatch] = field(default_factory=list)
+    results: list[SerpResult] = field(default_factory=list)
+    queries: list[str] = field(default_factory=list)
 
     async def lens(self, image_url):
         return self.matches
 
     async def web(self, q, engine="google"):
-        return []
+        self.queries.append(q)
+        return self.results
+
+
+@dataclass
+class FakeStreamingASR:
+    """Echoes a partial per audio chunk, then returns `result` (or raises `fail`)."""
+
+    result: StreamedTranscript | None = None
+    fail: Exception | None = None
+    chunks: list[bytes] = field(default_factory=list)
+    keywords: list[str] | None = None
+
+    async def stream(self, audio, *, language=None, keywords=None, on_partial=None):
+        self.keywords = keywords
+        async for chunk in audio:
+            self.chunks.append(chunk)
+            if on_partial:
+                await on_partial(f"heard {len(self.chunks)}")
+        if self.fail:
+            raise self.fail
+        return self.result
+
+
+PNG = b"\x89PNG\r\n\x1a\nfake-cover"
+
+
+@dataclass
+class FakeImage:
+    prompts: list[str] = field(default_factory=list)
+
+    async def generate(self, prompt):
+        self.prompts.append(prompt)
+        return PNG
 
 
 @dataclass
 class Fakes:
     llm: FakeLLM
     asr: FakeASR
+    asr_stream: FakeStreamingASR
     search: FakeSearch
+    image: FakeImage
     files: dict[str, bytes]
 
 
 @pytest.fixture
 async def fakes(monkeypatch) -> Fakes:
-    f = Fakes(llm=FakeLLM(), asr=FakeASR(), search=FakeSearch(), files={})
+    f = Fakes(
+        llm=FakeLLM(),
+        asr=FakeASR(),
+        asr_stream=FakeStreamingASR(),
+        search=FakeSearch(),
+        image=FakeImage(),
+        files={},
+    )
     monkeypatch.setattr(
         providers,
         "get_providers",
-        lambda: Providers(llm=f.llm, vision=f.llm, asr=f.asr, image=None, search=f.search),
+        lambda: Providers(
+            llm=f.llm,
+            vision=f.llm,
+            asr=f.asr,
+            asr_stream=f.asr_stream,
+            image=f.image,
+            search=f.search,
+        ),
     )
 
     async def download(bucket, path):
@@ -71,7 +128,11 @@ async def fakes(monkeypatch) -> Fakes:
     async def signed_download_url(bucket, path, expires_in=3600):
         return f"https://storage.test/{bucket}/{path}"
 
+    async def upload(bucket, path, data, mime):
+        f.files[path] = data
+
     monkeypatch.setattr(storage, "download", download)
+    monkeypatch.setattr(storage, "upload", upload)
     monkeypatch.setattr(storage, "signed_download_url", signed_download_url)
     return f
 
