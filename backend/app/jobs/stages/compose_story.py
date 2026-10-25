@@ -4,6 +4,8 @@ import json
 import logging
 from uuid import UUID
 
+import asyncpg
+
 from app import providers
 from app.citations import KnownFact, KnownSegment, Sources, check
 from app.db import pool
@@ -97,10 +99,10 @@ async def run(heirloom_id: UUID) -> None:
         raise ValueError(f"story {heirloom_id} has nothing left after validation")
 
     async with pool().acquire() as conn, conn.transaction():
-        version = await conn.fetchval(
+        saved = await conn.fetchrow(
             "insert into story (heirloom_id, version, title, dek, blocks) "
             "select $1, coalesce(max(version), 0) + 1, $2, $3, $4 from story "
-            "where heirloom_id = $1 returning version",
+            "where heirloom_id = $1 returning id, version",
             heirloom_id,
             story.title,
             story.dek,
@@ -110,5 +112,30 @@ async def run(heirloom_id: UUID) -> None:
             "update interview set state = 'done' where heirloom_id = $1 and state = 'wrapping_up'",
             heirloom_id,
         )
-        if version == 1:
+        await _complete_requests(conn, heirloom_id, saved["id"])
+        if saved["version"] == 1:
             await enqueue(conn, "cover_art", heirloom_id, heirloom["family_id"])
+
+
+async def _complete_requests(conn: asyncpg.Connection, heirloom_id: UUID, story_id: UUID) -> None:
+    """A finished interview answers its request: mark it completed, tie the story to it, and
+    tell the person who asked. Requests already completed stay quiet on later versions."""
+    await conn.execute(
+        """
+        with done as (
+          update story_request r set status = 'completed'
+          where r.status in ('pending', 'in_progress') and r.id in (
+            select request_id from interview
+            where heirloom_id = $1 and state = 'done' and request_id is not null
+          )
+          returning r.id, r.listener_id, r.storyteller_id
+        ), tagged as (
+          update story set request_id = d.id, storyteller_id = d.storyteller_id
+          from (select * from done limit 1) d where story.id = $2
+        )
+        insert into notification (recipient_id, type, request_id, story_id)
+        select listener_id, 'story_ready', id, $2 from done
+        """,
+        heirloom_id,
+        story_id,
+    )

@@ -1,12 +1,15 @@
+from typing import Literal
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from app import providers
 from app.auth import CurrentUser, family_of_heirloom, require_member
 from app.db import pool
 from app.jobs.queue import enqueue
 from app.models import Fact, HeirloomCategory
+from app.prompts import prompt
 from app.storage import object_path, signed_download_url, signed_upload_url
 
 router = APIRouter(prefix="/api/heirlooms", tags=["heirlooms"])
@@ -29,7 +32,18 @@ class HeirloomDetail(BaseModel):
 
 class CreateHeirloom(BaseModel):
     family_id: UUID
-    photo_mime: str
+    # The cover is what vision and Lens read, so it must be an image. A video capture sends a
+    # still frame here and the video itself through POST /{id}/media.
+    photo_mime: str = Field(pattern=r"^image/")
+
+
+class AddMedia(BaseModel):
+    mime: str = Field(pattern=r"^(image|video)/")
+
+
+class AddedMedia(BaseModel):
+    media_id: UUID
+    upload_url: str
 
 
 class CreatedHeirloom(BaseModel):
@@ -85,6 +99,29 @@ async def photo_uploaded(heirloom_id: UUID, media_id: UUID, user: CurrentUser) -
             )
             await enqueue(conn, "analyze_object", heirloom_id, family_id)
             await enqueue(conn, "lens_lookup", heirloom_id, family_id)
+
+
+@router.post("/{heirloom_id}/media", status_code=status.HTTP_201_CREATED)
+async def add_media(heirloom_id: UUID, body: AddMedia, user: CurrentUser) -> AddedMedia:
+    """Extra photos or the original video of a capture, kept beside the cover."""
+    media_id = uuid4()
+    kind = "video" if body.mime.startswith("video/") else "photo"
+    async with pool().acquire() as conn:
+        family_id = await family_of_heirloom(conn, heirloom_id)
+        await require_member(conn, user, family_id)
+        path = object_path(family_id, heirloom_id, media_id, body.mime)
+        await conn.execute(
+            "insert into media (id, family_id, heirloom_id, kind, storage_path, mime, created_by) "
+            "values ($1, $2, $3, $4, $5, $6, $7)",
+            media_id,
+            family_id,
+            heirloom_id,
+            kind,
+            path,
+            body.mime,
+            user.id,
+        )
+    return AddedMedia(media_id=media_id, upload_url=await signed_upload_url("photos", path))
 
 
 @router.get("")
@@ -145,4 +182,145 @@ async def get_heirloom(heirloom_id: UUID, user: CurrentUser) -> HeirloomDetail:
         observations=[Fact(**f) for f in facts],
         seed_questions=(reading or {}).get("seed_questions", []),
         latest_story_version=version,
+    )
+
+
+# Matching a new capture against the family's saved objects (Brief §3D) -------------------------
+
+MATCH_CONFIDENCE = 0.6
+MAX_MATCHES = 3
+
+
+class MatchPick(BaseModel):
+    index: int
+    confidence: float = Field(ge=0, le=1)
+
+
+class MatchPicks(BaseModel):
+    matches: list[MatchPick]
+
+
+class Candidate(BaseModel):
+    heirloom: Heirloom
+    confidence: float
+    has_story: bool
+    open_request_id: UUID | None
+
+
+class Matches(BaseModel):
+    # analyzing: the photo is still being read; failed: reading it failed, so nothing to compare.
+    status: Literal["analyzing", "ready", "failed"]
+    candidates: list[Candidate] = []
+
+
+async def _described(conn, heirloom_id: UUID) -> str:
+    h = await conn.fetchrow("select title, category from heirloom where id = $1", heirloom_id)
+    details = await conn.fetch(
+        "select text from fact where heirloom_id = $1 and kind = 'observation' "
+        "and source->>'via' = 'vision' order by confidence desc nulls last limit 5",
+        heirloom_id,
+    )
+    return f"{h['title']} ({h['category']}): " + " ".join(d["text"] for d in details)
+
+
+@router.get("/{heirloom_id}/matches")
+async def find_matches(heirloom_id: UUID, user: CurrentUser) -> Matches:
+    async with pool().acquire() as conn:
+        family_id = await family_of_heirloom(conn, heirloom_id)
+        await require_member(conn, user, family_id)
+        reading = await conn.fetchval(
+            "select status from job where kind = 'analyze_object' and subject_id = $1",
+            heirloom_id,
+        )
+        if reading == "failed":
+            return Matches(status="failed")
+        if reading != "done":
+            return Matches(status="analyzing")
+        saved = await conn.fetch(
+            """
+            select h.id, h.family_id, h.title, h.category, m.storage_path,
+                   exists(select 1 from story s where s.heirloom_id = h.id) as has_story,
+                   (select r.id from story_request r where r.heirloom_id = h.id
+                      and r.status in ('pending', 'in_progress') limit 1) as open_request_id
+            from heirloom h left join media m on m.id = h.cover_media_id
+            where h.family_id = $1 and h.id <> $2 and h.title is not null
+            order by h.created_at desc limit 30
+            """,
+            family_id,
+            heirloom_id,
+        )
+        if not saved:
+            return Matches(status="ready")
+        new = await _described(conn, heirloom_id)
+        listing = [f"[{i}] {await _described(conn, h['id'])}" for i, h in enumerate(saved)]
+
+    picks = await providers.get_providers().llm.json(
+        system=prompt("match_heirloom"),
+        messages=[
+            {"role": "user", "content": f"New object: {new}\n\nSaved:\n" + "\n".join(listing)}
+        ],
+        schema=MatchPicks,
+        effort="minimal",  # someone is watching a progress bar
+    )
+    best = sorted(
+        (
+            p
+            for p in picks.matches
+            if 0 <= p.index < len(saved) and p.confidence >= MATCH_CONFIDENCE
+        ),
+        key=lambda p: -p.confidence,
+    )
+    chosen = list({p.index: p for p in best}.values())[:MAX_MATCHES]
+    return Matches(
+        status="ready",
+        candidates=[
+            Candidate(
+                heirloom=Heirloom(
+                    id=saved[p.index]["id"],
+                    family_id=saved[p.index]["family_id"],
+                    title=saved[p.index]["title"],
+                    category=saved[p.index]["category"],
+                    cover_url=await _cover_url(saved[p.index]["storage_path"]),
+                ),
+                confidence=p.confidence,
+                has_story=saved[p.index]["has_story"],
+                open_request_id=saved[p.index]["open_request_id"],
+            )
+            for p in chosen
+        ],
+    )
+
+
+@router.post("/{heirloom_id}/same-as/{target_id}")
+async def merge_into(heirloom_id: UUID, target_id: UUID, user: CurrentUser) -> Heirloom:
+    """The capture was an object the family already saved: keep its photos on the saved one and
+    drop the duplicate record."""
+    async with pool().acquire() as conn:
+        family_id = await family_of_heirloom(conn, heirloom_id)
+        await require_member(conn, user, family_id)
+        if await family_of_heirloom(conn, target_id) != family_id or target_id == heirloom_id:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "not an object in this family")
+        async with conn.transaction():
+            await conn.execute(
+                "update heirloom set cover_media_id = null where id = $1", heirloom_id
+            )
+            await conn.execute(
+                "update media set heirloom_id = $2 where heirloom_id = $1 "
+                "and kind in ('photo', 'video')",
+                heirloom_id,
+                target_id,
+            )
+            await conn.execute("delete from job where subject_id = $1", heirloom_id)
+            await conn.execute("delete from heirloom where id = $1", heirloom_id)
+            t = await conn.fetchrow(
+                "select h.id, h.family_id, h.title, h.category, m.storage_path from heirloom h "
+                "left join media m on m.id = h.cover_media_id where h.id = $1",
+                target_id,
+            )
+    return Heirloom(
+        id=t["id"],
+        family_id=t["family_id"],
+        title=t["title"],
+        category=t["category"],
+        cover_url=await _cover_url(t["storage_path"]),
     )

@@ -15,7 +15,15 @@ const KIND_STYLE: Record<FactKind, string> = {
 }
 
 /** Renders a story; tapping a sentence that cites a recording plays it from that moment. */
-export function StoryView({ story }: { story: Story }) {
+export function StoryView({
+  story,
+  storytellerName,
+  onFollowUp,
+}: {
+  story: Story
+  storytellerName?: string
+  onFollowUp?: () => void
+}) {
   const audio = useRef<HTMLAudioElement>(null)
 
   function play(segmentId: string) {
@@ -88,17 +96,55 @@ export function StoryView({ story }: { story: Story }) {
         )
       // TODO: photo, people, memory blocks.
       case 'photo':
+        return (
+          <figure key={i} className="overflow-hidden rounded-xl bg-white shadow">
+            <div className="flex aspect-video items-center justify-center bg-ink/5 text-sm text-muted">
+              Photo {b.media_id.slice(0, 8)} — image plays in the heirloom page
+            </div>
+            {b.caption && (
+              <figcaption className="p-3 text-sm">{b.caption.text}</figcaption>
+            )}
+          </figure>
+        )
       case 'people':
+        return (
+          <section key={i} className="rounded-xl bg-white p-4 shadow">
+            <p className="font-semibold">People in this story</p>
+            <ul className="mt-1 list-disc pl-5 text-sm">
+              {b.person_ids.map((id) => (
+                <li key={id}>{id.slice(0, 8)}</li>
+              ))}
+            </ul>
+          </section>
+        )
       case 'memory':
-        return null
+        return (
+          <section key={i} className="rounded-xl border-l-4 border-memory bg-white p-4 text-sm shadow">
+            <p className="font-semibold">A relative&apos;s addition</p>
+            <p className="text-muted">Memory {b.memory_note_id.slice(0, 8)}</p>
+          </section>
+        )
     }
   }
 
   return (
     <article className="flex flex-col gap-4">
       <h1 className="font-serif text-4xl">{story.title}</h1>
+      {storytellerName && <p className="text-muted">Told by {storytellerName}</p>}
       {story.dek && <p className="text-lg text-muted">{story.dek}</p>}
+      <p className="rounded bg-ink/5 px-2 py-1 text-xs text-muted">
+        Tap an underlined sentence to hear the original recording. Dotted lines are
+        Tell Me More&apos;s notes, kept separate from family words.
+      </p>
       {story.blocks.map(renderBlock)}
+      {onFollowUp && (
+        <button
+          onClick={onFollowUp}
+          className="rounded-xl border border-ink/20 bg-white px-4 py-3"
+        >
+          Ask a follow-up
+        </button>
+      )}
       <audio ref={audio} controls className="sticky bottom-4 w-full" />
     </article>
   )

@@ -108,6 +108,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/heirlooms/{heirloom_id}/media": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add Media
+         * @description Extra photos or the original video of a capture, kept beside the cover.
+         */
+        post: operations["add_media_api_heirlooms__heirloom_id__media_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/heirlooms/{heirloom_id}": {
         parameters: {
             query?: never;
@@ -119,6 +139,44 @@ export interface paths {
         get: operations["get_heirloom_api_heirlooms__heirloom_id__get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/heirlooms/{heirloom_id}/matches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Find Matches */
+        get: operations["find_matches_api_heirlooms__heirloom_id__matches_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/heirlooms/{heirloom_id}/same-as/{target_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Merge Into
+         * @description The capture was an object the family already saved: keep its photos on the saved one and
+         *     drop the duplicate record.
+         */
+        post: operations["merge_into_api_heirlooms__heirloom_id__same_as__target_id__post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -278,6 +336,144 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Requests */
+        get: operations["list_requests_api_requests_get"];
+        put?: never;
+        /** Create Request */
+        post: operations["create_request_api_requests_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/requests/{request_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Request */
+        get: operations["get_request_api_requests__request_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/requests/{request_id}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Accept Request */
+        post: operations["accept_request_api_requests__request_id__accept_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/requests/{request_id}/decline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Decline Request */
+        post: operations["decline_request_api_requests__request_id__decline_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/requests/{request_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Request */
+        post: operations["cancel_request_api_requests__request_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Notifications */
+        get: operations["list_notifications_api_notifications_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/notifications/{notification_id}/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark Read */
+        post: operations["mark_read_api_notifications__notification_id__read_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Profile */
+        get: operations["get_profile_api_profile_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Profile */
+        patch: operations["update_profile_api_profile_patch"];
+        trace?: never;
+    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -299,6 +495,21 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AddMedia */
+        AddMedia: {
+            /** Mime */
+            mime: string;
+        };
+        /** AddedMedia */
+        AddedMedia: {
+            /**
+             * Media Id
+             * Format: uuid
+             */
+            media_id: string;
+            /** Upload Url */
+            upload_url: string;
+        };
         /** AnswerUpload */
         AnswerUpload: {
             /**
@@ -327,6 +538,16 @@ export interface components {
             w: number;
             /** H */
             h: number;
+        };
+        /** Candidate */
+        Candidate: {
+            heirloom: components["schemas"]["Heirloom"];
+            /** Confidence */
+            confidence: number;
+            /** Has Story */
+            has_story: boolean;
+            /** Open Request Id */
+            open_request_id: string | null;
         };
         /** Context */
         Context: {
@@ -392,6 +613,8 @@ export interface components {
              * @default en
              */
             language?: string;
+            /** Request Id */
+            request_id?: string | null;
         };
         /** CreatePerson */
         CreatePerson: {
@@ -411,6 +634,28 @@ export interface components {
              * @default true
              */
             is_living?: boolean;
+        };
+        /** CreateRequest */
+        CreateRequest: {
+            /**
+             * Heirloom Id
+             * Format: uuid
+             */
+            heirloom_id: string;
+            /**
+             * Storyteller Id
+             * Format: uuid
+             */
+            storyteller_id: string;
+            /** Capture Media Id */
+            capture_media_id?: string | null;
+            /**
+             * Message
+             * @default
+             */
+            message?: string;
+            /** Idempotency Key */
+            idempotency_key?: string | null;
         };
         /** CreatedHeirloom */
         CreatedHeirloom: {
@@ -595,6 +840,19 @@ export interface components {
             /** Your Name */
             your_name: string;
         };
+        /** Matches */
+        Matches: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "analyzing" | "ready" | "failed";
+            /**
+             * Candidates
+             * @default []
+             */
+            candidates?: components["schemas"]["Candidate"][];
+        };
         /** Memory */
         Memory: {
             /**
@@ -660,6 +918,29 @@ export interface components {
         NewMemory: {
             /** Text */
             text: string;
+        };
+        /** Notification */
+        Notification: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Recipient Id
+             * Format: uuid
+             */
+            recipient_id: string;
+            /** Type */
+            type: string;
+            /** Request Id */
+            request_id?: string | null;
+            /** Story Id */
+            story_id?: string | null;
+            /** Read At */
+            read_at?: string | null;
+            /** Created At */
+            created_at?: string | null;
         };
         /** ObservationSource */
         ObservationSource: {
@@ -740,6 +1021,20 @@ export interface components {
             media_id: string;
             caption?: components["schemas"]["Sentence"] | null;
         };
+        /** Profile */
+        Profile: {
+            /** User Id */
+            user_id: string;
+            /** Display Name */
+            display_name?: string | null;
+            /** Age */
+            age?: number | null;
+            /**
+             * Ui Mode
+             * @default simplified
+             */
+            ui_mode?: string;
+        };
         /**
          * Quote
          * @description Verbatim. The text is read from the segment at render time, never stored here.
@@ -760,6 +1055,50 @@ export interface components {
              * Format: uuid
              */
             speaker_id: string;
+        };
+        /** RequestDetail */
+        RequestDetail: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Heirloom Id
+             * Format: uuid
+             */
+            heirloom_id: string;
+            /** Capture Media Id */
+            capture_media_id?: string | null;
+            /**
+             * Listener Id
+             * Format: uuid
+             */
+            listener_id: string;
+            /**
+             * Storyteller Id
+             * Format: uuid
+             */
+            storyteller_id: string;
+            /**
+             * Message
+             * @default
+             */
+            message?: string;
+            /** Status */
+            status: string;
+            /** Created At */
+            created_at?: string | null;
+            /** Heirloom Title */
+            heirloom_title?: string | null;
+            /** Heirloom Cover Url */
+            heirloom_cover_url?: string | null;
+            /** Capture Url */
+            capture_url?: string | null;
+            /** Listener Name */
+            listener_name?: string | null;
+            /** Storyteller Name */
+            storyteller_name?: string | null;
         };
         /** ResolvedSegment */
         ResolvedSegment: {
@@ -837,6 +1176,40 @@ export interface components {
                 [key: string]: components["schemas"]["ContextCard"];
             };
         };
+        /** StoryRequest */
+        StoryRequest: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Heirloom Id
+             * Format: uuid
+             */
+            heirloom_id: string;
+            /** Capture Media Id */
+            capture_media_id?: string | null;
+            /**
+             * Listener Id
+             * Format: uuid
+             */
+            listener_id: string;
+            /**
+             * Storyteller Id
+             * Format: uuid
+             */
+            storyteller_id: string;
+            /**
+             * Message
+             * @default
+             */
+            message?: string;
+            /** Status */
+            status: string;
+            /** Created At */
+            created_at?: string | null;
+        };
         /** Timeline */
         Timeline: {
             /**
@@ -874,6 +1247,15 @@ export interface components {
             text: string | null;
             /** Target Slot */
             target_slot: string | null;
+        };
+        /** UpdateProfile */
+        UpdateProfile: {
+            /** Display Name */
+            display_name?: string | null;
+            /** Age */
+            age?: number | null;
+            /** Ui Mode */
+            ui_mode?: string | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -1143,6 +1525,41 @@ export interface operations {
             };
         };
     };
+    add_media_api_heirlooms__heirloom_id__media_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                heirloom_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddMedia"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AddedMedia"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_heirloom_api_heirlooms__heirloom_id__get: {
         parameters: {
             query?: never;
@@ -1161,6 +1578,69 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HeirloomDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    find_matches_api_heirlooms__heirloom_id__matches_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                heirloom_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Matches"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    merge_into_api_heirlooms__heirloom_id__same_as__target_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                heirloom_id: string;
+                target_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Heirloom"];
                 };
             };
             /** @description Validation Error */
@@ -1453,6 +1933,299 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Story"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_requests_api_requests_get: {
+        parameters: {
+            query: {
+                family_id: string;
+                scope?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoryRequest"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_request_api_requests_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequestDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_request_api_requests__request_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequestDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    accept_request_api_requests__request_id__accept_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoryRequest"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decline_request_api_requests__request_id__decline_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoryRequest"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_request_api_requests__request_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoryRequest"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_notifications_api_notifications_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Notification"][];
+                };
+            };
+        };
+    };
+    mark_read_api_notifications__notification_id__read_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                notification_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Notification"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_profile_api_profile_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Profile"];
+                };
+            };
+        };
+    };
+    update_profile_api_profile_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateProfile"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Profile"];
                 };
             };
             /** @description Validation Error */

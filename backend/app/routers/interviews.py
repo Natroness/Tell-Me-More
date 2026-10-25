@@ -39,6 +39,7 @@ class CreateInterview(BaseModel):
     heirloom_id: UUID
     narrator_id: UUID
     language: str = "en"
+    request_id: UUID | None = None  # set when this interview answers a story request
 
 
 class StartedInterview(BaseModel):
@@ -73,11 +74,29 @@ async def _set_state(conn: asyncpg.Connection, interview_id: UUID, state: Interv
     await conn.execute("update interview set state = $2 where id = $1", interview_id, state)
 
 
+async def _check_request(conn: asyncpg.Connection, body: CreateInterview, me: UUID) -> None:
+    """The storyteller tells, on their own phone or the listener's in person."""
+    r = await conn.fetchrow(
+        "select heirloom_id, listener_id, storyteller_id, status from story_request where id = $1",
+        body.request_id,
+    )
+    if r is None or r["heirloom_id"] != body.heirloom_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "request not found")
+    if body.narrator_id != r["storyteller_id"]:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "the storyteller tells this story")
+    if me not in (r["listener_id"], r["storyteller_id"]):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "not part of this request")
+    if r["status"] not in ("pending", "in_progress"):
+        raise HTTPException(status.HTTP_409_CONFLICT, f"request is {r['status']}")
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def start_interview(body: CreateInterview, user: CurrentUser) -> StartedInterview:
     async with pool().acquire() as conn:
         family_id = await family_of_heirloom(conn, body.heirloom_id)
-        await require_member(conn, user, family_id)
+        me = await require_member(conn, user, family_id)
+        if body.request_id:
+            await _check_request(conn, body, me)
         reading = await conn.fetchval(
             "select output from job where kind = 'analyze_object' and subject_id = $1",
             body.heirloom_id,
@@ -86,12 +105,20 @@ async def start_interview(body: CreateInterview, user: CurrentUser) -> StartedIn
         async with conn.transaction():
             interview = await conn.fetchrow(
                 "insert into interview (heirloom_id, narrator_id, interviewer_user_id, language, "
-                f"state) values ($1, $2, $3, $4, 'asking') returning {_INTERVIEW_COLS}",
+                f"request_id, state) values ($1, $2, $3, $4, $5, 'asking') "
+                f"returning {_INTERVIEW_COLS}",
                 body.heirloom_id,
                 body.narrator_id,
                 user.id,
                 body.language,
+                body.request_id,
             )
+            if body.request_id:
+                await conn.execute(
+                    "update story_request set status = 'in_progress' "
+                    "where id = $1 and status = 'pending'",
+                    body.request_id,
+                )
             turn = await conn.fetchrow(
                 "insert into turn (interview_id, idx, role, text) values ($1, 0, 'question', $2) "
                 "returning id, idx, role, text, target_slot",

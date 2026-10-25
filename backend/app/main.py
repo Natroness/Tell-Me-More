@@ -7,7 +7,17 @@ from fastapi import FastAPI
 from app import db
 from app.config import get_settings
 from app.jobs.runner import run_worker
-from app.routers import answer_stream, families, heirlooms, interviews, memories, stories
+from app.routers import (
+    answer_stream,
+    families,
+    heirlooms,
+    interviews,
+    memories,
+    notifications,
+    profiles,
+    requests,
+    stories,
+)
 
 log = logging.getLogger("lorebook")
 
@@ -35,7 +45,17 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="Lorebook API", lifespan=lifespan)
 
-for r in (families, heirlooms, interviews, answer_stream, memories, stories):
+for r in (
+    families,
+    heirlooms,
+    interviews,
+    answer_stream,
+    memories,
+    stories,
+    requests,
+    notifications,
+    profiles,
+):
     app.include_router(r.router)
 
 
